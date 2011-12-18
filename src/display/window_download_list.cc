@@ -38,6 +38,8 @@
 
 #include <rak/algorithm.h>
 
+#include <torrent/rate.h>
+
 #include "core/download.h"
 #include "core/view.h"
 
@@ -64,6 +66,9 @@ WindowDownloadList::set_view(core::View* l) {
 
 void
 WindowDownloadList::redraw() {
+  /*timespec ts;
+  clock_gettime(CLOCK_REALTIME, &ts);*/
+
   m_slotSchedule(this, (cachedTime + rak::timer::from_seconds(1)).round_seconds());
 
   m_canvas->erase();
@@ -78,35 +83,123 @@ WindowDownloadList::redraw() {
 
   typedef std::pair<core::View::iterator, core::View::iterator> Range;
 
-  Range range = rak::advance_bidirectional(m_view->begin_visible(),
-                                           m_view->focus() != m_view->end_visible() ? m_view->focus() : m_view->begin_visible(),
-                                           m_view->end_visible(),
-                                           m_canvas->height() / 3);
+  bool minimal = false;
+  if (m_view->name() == "minimal") {
+	  minimal = true;
+  }
+
+  Range range;
+  if (!minimal) {
+	  range = rak::advance_bidirectional(m_view->begin_visible(),
+											   m_view->focus() != m_view->end_visible() ? m_view->focus() : m_view->begin_visible(),
+											   m_view->end_visible(),
+											   m_canvas->height() / 3 - 1);
+  } else {
+	  range = rak::advance_bidirectional(m_view->begin_visible(),
+											   m_view->focus() != m_view->end_visible() ? m_view->focus() : m_view->begin_visible(),
+											   m_view->end_visible(),
+											   m_canvas->height() - 2);
+  }
 
   // Make sure we properly fill out the last lines so it looks like
   // there are more torrents, yet don't hide it if we got the last one
   // in focus.
-  if (range.second != m_view->end_visible())
+  if (range.second != m_view->end_visible() && !minimal)
     ++range.second;
+
+  int bg = COLOR_BLACK;
+#ifdef HAVE_NCURSES_USE_DEFAULT_COLORS
+  bg = -1;
+#endif
+
+  static bool hasColor = has_colors();
+  static bool colorsInitialized = false;
+  if (hasColor && !colorsInitialized) {
+	  init_pair(1, COLOR_RED, bg);
+	  init_pair(2, COLOR_GREEN, bg);
+	  init_pair(3, COLOR_YELLOW, bg);
+	  init_pair(4, COLOR_BLUE, bg);
+	  init_pair(8, COLOR_WHITE, bg);
+	  colorsInitialized = true;
+  }
 
   int pos = 1;
 
+
+
+  double ratio = 0;
+  int col = 0;
+  int statusCol = 0;
+  int statusAttrib = 0;
+
+  int width = m_canvas->width();
+
+  if (minimal) {
+	char buffer[width + 1];
+	char* last = buffer + width - 2 + 1;
+	print_download_minimal_header(buffer, last);
+	m_canvas->print(0, pos, "%c %s", ' ', buffer);
+	pos++;
+  }
+
   while (range.first != range.second) {
-    char buffer[m_canvas->width() + 1];
+    char buffer[width + 1];
     char* position;
-    char* last = buffer + m_canvas->width() - 2 + 1;
+    char* last = buffer + width - 2 + 1;
 
-    position = print_download_title(buffer, last, *range.first);
-    m_canvas->print(0, pos++, "%c %s", range.first == m_view->focus() ? '*' : ' ', buffer);
-    
-    position = print_download_info(buffer, last, *range.first);
-    m_canvas->print(0, pos++, "%c %s", range.first == m_view->focus() ? '*' : ' ', buffer);
 
-    position = print_download_status(buffer, last, *range.first);
-    m_canvas->print(0, pos++, "%c %s", range.first == m_view->focus() ? '*' : ' ', buffer);
+	ratio = ((*range.first)->download()->bytes_done()) ? (double)(*range.first)->info()->up_rate()->total() / (double)(*range.first)->download()->bytes_done() : 0;
+
+	if (hasColor) {
+		if (ratio >= 1.0)       { col = 2; }
+		else if (ratio >= 0.5)  { col = 3; }
+		else					{ col = 1; }
+
+		if ( (*range.first)->is_seeding()) {
+			statusCol = 2; //Green
+			statusAttrib = A_BOLD;
+		} else if ( (*range.first)->is_downloading()) {
+			statusCol = 4; //Blue
+			statusAttrib = A_BOLD;
+		} else {
+			statusCol = 1; //Red
+		}
+	}
+
+	char focused = ' ';
+	if (range.first == m_view->focus())
+		focused = '*';
+
+	if (!minimal) {
+		position = print_download_title(buffer, last, *range.first, ratio);
+		m_canvas->print(0, pos, "%c %s", focused, buffer);
+		if (hasColor) {
+			m_canvas->set_attr(0, pos, width, statusAttrib, statusCol);
+			m_canvas->set_attr( (*range.first)->info()->name().size()+3, pos, width, 0, col);
+		}
+		pos++;
+
+		position = print_download_info(buffer, last, *range.first);
+		m_canvas->print(0, pos++, "%c %s", focused, buffer);
+
+		position = print_download_status(buffer, last, *range.first);
+		m_canvas->print(0, pos++, "%c %s", focused, buffer);
+	} else {
+		position = print_download_minimal(buffer, last, *range.first, ratio);
+		m_canvas->print(0, pos, "%c %s", focused, buffer);
+		if (hasColor) {
+			m_canvas->set_attr(0, pos, 58, statusAttrib, statusCol);
+			m_canvas->set_attr(61, pos, 5, 0, col);
+		}
+		pos++;
+	}
 
     ++range.first;
-  }    
+  }
+ /* timespec ts2;
+  clock_gettime(CLOCK_REALTIME, &ts2);
+  m_canvas->print(0, 0, "Time: %d    Height: %d  Width: %d   pos: %d   ", ts2.tv_nsec - ts.tv_nsec, m_canvas->height(), 
+		  width, pos);*/
 }
 
 }

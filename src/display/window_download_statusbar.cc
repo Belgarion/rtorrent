@@ -88,6 +88,13 @@ WindowDownloadStatusbar::redraw() {
                   m_download->tracker_list()->has_active() ? 'C' : ' ',
                   (int)(m_download->download()->tracker_list()->time_next_connection()),
                   buffer);
+
+  if (has_colors()) {
+	  m_canvas->set_attr(0, 0, m_canvas->get_screen_width(), A_REVERSE, 0);
+	  m_canvas->set_attr(0, 1, m_canvas->get_screen_width(), A_REVERSE, 0);
+	  m_canvas->set_attr(0, 2, m_canvas->get_screen_width(), A_REVERSE, 0);
+  }
+
 }
 
 }

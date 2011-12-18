@@ -97,6 +97,11 @@ Canvas::initialize() {
   nodelay(stdscr, TRUE);
   keypad(stdscr, TRUE);
   curs_set(0);
+  if (has_colors())
+    start_color();
+#ifdef HAVE_NCURSES_USE_DEFAULT_COLORS
+  use_default_colors();
+#endif
 }
 
 void

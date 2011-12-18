@@ -63,13 +63,17 @@ char*       print_string(char* first, char* last, char* str);
 char*       print_hhmmss(char* first, char* last, time_t t);
 char*       print_hhmmss_local(char* first, char* last, time_t t);
 char*       print_ddhhmm(char* first, char* last, time_t t);
+char*       print_ddhhmmss(char* first, char* last, time_t t);
 char*       print_ddmmyyyy(char* first, char* last, time_t t);
 
-char*       print_download_title(char* first, char* last, core::Download* d);
+char*       print_download_title(char* first, char* last, core::Download* d, double ratio);
 char*       print_download_info(char* first, char* last, core::Download* d);
 char*       print_download_status(char* first, char* last, core::Download* d);
 char*       print_download_time_left(char* first, char* last, core::Download* d);
 char*       print_download_percentage_done(char* first, char* last, core::Download* d);
+char*       print_download_minimal_header(char* first, char* last);
+char*       print_download_minimal(char* first, char* last, core::Download* d, double ratio);
+char*       print_download_minimal_percentage_done(char* first, char* last, core::Download* d);
 
 char*       print_client_version(char* first, char* last, const torrent::ClientInfo& clientInfo);
 

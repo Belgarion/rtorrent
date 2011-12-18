@@ -177,7 +177,7 @@ main(int argc, char** argv) {
     SignalHandler::set_handler(SIGTERM,  sigc::mem_fun(control, &Control::receive_quick_shutdown));
     SignalHandler::set_handler(SIGWINCH, sigc::mem_fun(control->display(), &display::Manager::force_redraw));
     SignalHandler::set_handler(SIGSEGV,  sigc::bind(sigc::ptr_fun(&do_panic), SIGSEGV));
-    SignalHandler::set_handler(SIGILL,   sigc::bind(sigc::ptr_fun(&do_panic), SIGILL));
+    SignalHandler::set_handler(SIGILL,  sigc::bind(sigc::ptr_fun(&do_panic), SIGILL));
     SignalHandler::set_handler(SIGBUS,   sigc::bind(sigc::ptr_fun(&do_panic), SIGBUS));
     SignalHandler::set_handler(SIGFPE,   sigc::bind(sigc::ptr_fun(&do_panic), SIGFPE));
 
@@ -301,6 +301,8 @@ main(int argc, char** argv) {
        "view.filter_on    = seeding,event.download.resumed,event.download.paused,event.download.finished\n"
        "view.sort_new     = seeding,less=d.state_changed=\n"
        "view.sort_current = seeding,less=d.state_changed=\n"
+
+	   "view.add = minimal\n"
 
        "schedule2 = view.main,10,10,\"view.sort=main,20\"\n"
        "schedule2 = view.name,10,10,\"view.sort=name,20\"\n"

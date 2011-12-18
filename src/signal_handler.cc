@@ -44,7 +44,7 @@ SignalHandler::Slot SignalHandler::m_handlers[HIGHEST_SIGNAL];
 void
 SignalHandler::set_default(unsigned int signum) {
   if (signum > HIGHEST_SIGNAL)
-    throw std::logic_error("SignalHandler::set_default(...) received invalid signal value.");
+    throw std::logic_error("SignalHandler::set_default(...) received invalid signal value");
 
   signal(signum, SIG_DFL);
   m_handlers[signum].disconnect();
@@ -53,7 +53,7 @@ SignalHandler::set_default(unsigned int signum) {
 void
 SignalHandler::set_ignore(unsigned int signum) {
   if (signum > HIGHEST_SIGNAL)
-    throw std::logic_error("SignalHandler::set_ignore(...) received invalid signal value.");
+    throw std::logic_error("SignalHandler::set_ignore(...) received invalid signal value");
 
   signal(signum, SIG_IGN);
   m_handlers[signum].disconnect();
@@ -62,10 +62,10 @@ SignalHandler::set_ignore(unsigned int signum) {
 void
 SignalHandler::set_handler(unsigned int signum, Slot slot) {
   if (signum > HIGHEST_SIGNAL)
-    throw std::logic_error("SignalHandler::set_handler(...) received invalid signal value.");
+    throw std::logic_error("SignalHandler::set_handler(...) received invalid signal value");
 
   if (slot.empty())
-    throw std::logic_error("SignalHandler::set_handler(...) received an empty slot.");
+    throw std::logic_error("SignalHandler::set_handler(...) received an empty slot");
 
   signal(signum, &SignalHandler::caught);
   m_handlers[signum] = slot;

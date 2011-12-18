@@ -43,6 +43,8 @@
 #include <rak/functional_fun.h>
 #include <sigc++/adaptors/bind.h>
 
+#include <sstream>
+
 #include "core/manager.h"
 #include "core/view_manager.h"
 #include "ui/root.h"
@@ -61,7 +63,7 @@ apply_view_filter_on(const torrent::Object::list_type& args) {
     throw torrent::input_error("Too few arguments.");
 
   const std::string& name = args.front().as_string();
-  
+
   if (name.empty())
     throw torrent::input_error("First argument must be a string.");
 
@@ -81,7 +83,7 @@ apply_view_cfilter(view_cfilter_slot viewFilterSlot, const torrent::Object::list
     throw torrent::input_error("Too few arguments.");
 
   const std::string& name = args.front().as_string();
-  
+
   if (name.empty())
     throw torrent::input_error("First argument must be a string.");
 

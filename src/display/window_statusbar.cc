@@ -65,6 +65,8 @@ WindowStatusbar::redraw() {
   if (last > buffer) {
     position = print_status_extra(buffer, last);
     m_canvas->print(m_canvas->width() - (position - buffer), 0, "%s", buffer);
+	if (has_colors())
+	    m_canvas->set_attr(0, 0, m_canvas->get_screen_width(), A_REVERSE, 0);
   }
 
   m_lastTick = control->tick();

@@ -180,20 +180,21 @@ ExecFile::execute_object(const torrent::Object& rawArgs, int flags) {
 
         if (valueCurrent >= valueBuffer + buffer_size)
           throw torrent::input_error("Overflowed execute arg buffer.");
-      }      
+      }
     }
 
   } else {
     const torrent::Object::string_type& args = rawArgs.as_string();
-    
+
     if ((flags & flag_expand_tilde) && args.c_str()[0] == '~') {
       *argsCurrent = valueCurrent;
       valueCurrent = print_object(valueCurrent, valueBuffer + buffer_size, &rawArgs, flags) + 1;
+
     } else {
       *argsCurrent = const_cast<char*>(args.c_str());
     }
 
-    argsCurrent++;
+	argsCurrent++;
   }
 
   *argsCurrent = NULL;

@@ -60,6 +60,7 @@
 #include "control.h"
 #include "globals.h"
 #include "utils.h"
+#include "attributes.h"
 
 namespace display {
 
@@ -103,6 +104,14 @@ print_ddhhmm(char* first, char* last, time_t t) {
 }
 
 char*
+print_ddhhmmss(char* first, char* last, time_t t) {
+  if (t / (24 * 3600) < 100)
+    return print_buffer(first, last, "%2id %2i:%02i:%02i", (int)t / (24 * 3600), ((int)t / 3600) % 24, ((int)t / 60) % 60, (int)t % 60);
+  else
+    return print_buffer(first, last, "--d --:--:--");
+}
+
+char*
 print_ddmmyyyy(char* first, char* last, time_t t) {
   std::tm *u = std::gmtime(&t);
   
@@ -127,8 +136,8 @@ print_address(char* first, char* last, const sockaddr* sa) {
 }
 
 char*
-print_download_title(char* first, char* last, core::Download* d) {
-  return print_buffer(first, last, " %s", d->info()->name().c_str());
+print_download_title(char* first, char* last, core::Download* d, double ratio) {
+  return print_buffer(first, last, " %-85s  R: %5.2f", d->info()->name().c_str(), ratio);
 }
 
 char*
@@ -141,16 +150,32 @@ print_download_info(char* first, char* last, core::Download* d) {
     first = print_buffer(first, last, "          ");
 
   if (d->is_done())
-    first = print_buffer(first, last, "done %10.1f MB", (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
+    if ( ((double)d->download()->file_list()->size_bytes() / (double)(1 << 30)) > 1.0 )
+      first = print_buffer(first, last, "done %10.1f GB", (double)d->download()->file_list()->size_bytes() / (double)(1 << 30));
+	else
+	  first = print_buffer(first, last, "done %10.1f MB", (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
   else
-    first = print_buffer(first, last, "%6.1f / %6.1f MB",
-                         (double)d->download()->bytes_done() / (double)(1 << 20),
-                         (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
+	if ( ((double)d->download()->file_list()->size_bytes() / (double)(1 << 30)) > 1.0 ) {
+      first = print_buffer(first, last, "%6.1f / %6.1f GB",
+                           (double)d->download()->bytes_done() / (double)(1 << 30),
+                           (double)d->download()->file_list()->size_bytes() / (double)(1 << 30));
+	} else {
+	  first = print_buffer(first, last, "%6.1f / %6.1f MB",
+                           (double)d->download()->bytes_done() / (double)(1 << 20),
+						   (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
+	}
   
-  first = print_buffer(first, last, " Rate: %5.1f / %5.1f KB Uploaded: %7.1f MB",
-                       (double)d->info()->up_rate()->rate() / (1 << 10),
-                       (double)d->info()->down_rate()->rate() / (1 << 10),
-                       (double)d->info()->up_rate()->total() / (1 << 20));
+  if ( ((double)d->info()->up_rate()->total() / (double)(1 << 30)) > 1.0 ) {
+    first = print_buffer(first, last, " Rate: %5.1f / %5.1f KB Uploaded: %7.1f GB",
+                         (double)d->info()->up_rate()->rate() / (1 << 10),
+                         (double)d->info()->down_rate()->rate() / (1 << 10),
+                         (double)d->info()->up_rate()->total() / (1 << 30));
+  } else {
+    first = print_buffer(first, last, " Rate: %5.1f / %5.1f KB Uploaded: %7.1f MB",
+                         (double)d->info()->up_rate()->rate() / (1 << 10),
+                         (double)d->info()->down_rate()->rate() / (1 << 10),
+                         (double)d->info()->up_rate()->total() / (1 << 20));
+  }
 
   if (d->download()->info()->is_active() && !d->is_done()) {
     first = print_buffer(first, last, " ");
@@ -159,13 +184,18 @@ print_download_info(char* first, char* last, core::Download* d) {
     first = print_buffer(first, last, " ");
     first = print_download_time_left(first, last, d);
   } else {
-    first = print_buffer(first, last, "                ");
+    first = print_buffer(first, last, "                   ");
   }
 
-  first = print_buffer(first, last, " [%c%c R: %4.2f",
-                       rpc::call_command_string("d.tied_to_file", rpc::make_target(d)).empty() ? ' ' : 'T',
-                       rpc::call_command_value("d.ignore_commands", rpc::make_target(d)) == 0 ? ' ' : 'I',
-                       (double)rpc::call_command_value("d.ratio", rpc::make_target(d)) / 1000.0);
+  if (has_colors())
+	  first = print_buffer(first, last, " [%c%c",
+	                       rpc::call_command_string("d.tied_to_file", rpc::make_target(d)).empty() ? ' ' : 'T',
+	                       rpc::call_command_value("d.ignore_commands", rpc::make_target(d)) == 0 ? ' ' : 'I');
+  else
+	  first = print_buffer(first, last, " [%c%c R: %4.2f",
+	                       rpc::call_command_string("d.tied_to_file", rpc::make_target(d)).empty() ? ' ' : 'T',
+	                       rpc::call_command_value("d.ignore_commands", rpc::make_target(d)) == 0 ? ' ' : 'I',
+	                       (double)rpc::call_command_value("d.ratio", rpc::make_target(d)) / 1000.0);
 
   if (d->priority() != 2)
     first = print_buffer(first, last, " %s", rpc::call_command_string("d.priority_str", rpc::make_target(d)).c_str());
@@ -220,37 +250,139 @@ print_download_time_left(char* first, char* last, core::Download* d) {
   uint32_t rate = d->info()->down_rate()->rate();
 
   if (rate < 512)
-    return print_buffer(first, last, "--d --:--");
+    return print_buffer(first, last, "--d --:--:--");
   
   time_t remaining = (d->download()->file_list()->size_bytes() - d->download()->bytes_done()) / (rate & ~(uint32_t)(512 - 1));
 
-  return print_ddhhmm(first, last, remaining);
+  return print_ddhhmmss(first, last, remaining);
 }
 
 char*
 print_download_percentage_done(char* first, char* last, core::Download* d) {
   if (!d->is_open() || d->is_done())
     //return print_buffer(first, last, "[--%%]");
-    return print_buffer(first, last, "     ");
+    return print_buffer(first, last, "        ");
   else
     return print_buffer(first, last, "[%2u%%]", (d->download()->file_list()->completed_chunks() * 100) / d->download()->file_list()->size_chunks());
 }
+
+//// Minimal
+char*
+print_download_minimal_header(char* first, char* last) {
+  first = print_buffer(first, last, " %-55s | Ratio | S |   Done |      Size |    Up |     Down |   Uploaded |  % |          ETA | TI |", "Title");
+  return first;
+}
+
+char*
+print_download_minimal(char* first, char* last, core::Download* d, double ratio) {
+  first = print_buffer(first, last, " %-55s | %5.2f", d->info()->name().substr(0,55).c_str(), ratio);
+
+  if (!d->download()->info()->is_open())
+    first = print_buffer(first, last, " | C");
+  else if (!d->download()->info()->is_active())
+    first = print_buffer(first, last, " | O");
+  else
+    first = print_buffer(first, last, " | +");
+
+  if (d->is_done())
+    if ( ((double)d->download()->file_list()->size_bytes() / (double)(1 << 30)) > 1.0 )
+      first = print_buffer(first, last, " |   done | %6.1f GB", (double)d->download()->file_list()->size_bytes() / (double)(1 << 30));
+	else
+	  first = print_buffer(first, last, " |   done | %6.1f MB", (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
+  else
+	if ( ((double)d->download()->file_list()->size_bytes() / (double)(1 << 30)) > 1.0 ) {
+      first = print_buffer(first, last, " | %6.1f / %6.1f GB",
+                           (double)d->download()->bytes_done() / (double)(1 << 30),
+                           (double)d->download()->file_list()->size_bytes() / (double)(1 << 30));
+	} else {
+	  first = print_buffer(first, last, " | %6.1f / %6.1f MB",
+                           (double)d->download()->bytes_done() / (double)(1 << 20),
+						   (double)d->download()->file_list()->size_bytes() / (double)(1 << 20));
+	}
+
+  if ( ((double)d->info()->up_rate()->total() / (double)(1 << 30)) > 1.0 ) {
+    first = print_buffer(first, last, " | %5.1f / %5.1f kB | %7.1f GB",
+                         (double)d->info()->up_rate()->rate() / (1 << 10),
+                         (double)d->info()->down_rate()->rate() / (1 << 10),
+                         (double)d->info()->up_rate()->total() / (1 << 30));
+  } else {
+    first = print_buffer(first, last, " | %5.1f / %5.1f kB | %7.1f MB",
+                         (double)d->info()->up_rate()->rate() / (1 << 10),
+                         (double)d->info()->down_rate()->rate() / (1 << 10),
+                         (double)d->info()->up_rate()->total() / (1 << 20));
+  }
+
+  if (d->download()->info()->is_active() && !d->is_done()) {
+    first = print_buffer(first, last, " | ");
+    first = print_download_minimal_percentage_done(first, last, d);
+
+    first = print_buffer(first, last, " | ");
+    first = print_download_time_left(first, last, d);
+  } else {
+    first = print_buffer(first, last, " |    |             ");
+  }
+
+  first = print_buffer(first, last, " | %c%c",
+					   rpc::call_command_string("d.tied_to_file", rpc::make_target(d)).empty() ? ' ' : 'T',
+					   rpc::call_command_value("d.ignore_commands", rpc::make_target(d)) == 0 ? ' ' : 'I');
+
+
+  if (rpc::call_command_value("d.hashing", rpc::make_target(d)) != 0)
+    first = print_buffer(first, last, " | Hashing");
+  else if (!d->is_active())
+    first = print_buffer(first, last, " | Inactive");
+
+  if (d->is_hash_checking()) {
+    first = print_buffer(first, last, " | Checking hash [%2i%%]",
+                         (d->download()->chunks_hashed() * 100) / d->download()->file_list()->size_chunks());
+
+  } else if (d->tracker_list()->has_active() && d->tracker_list()->focus() < d->tracker_list()->end()) {
+    torrent::TrackerList* tl = d->tracker_list();
+    char status[128];
+
+    (*tl->focus())->get_status(status, sizeof(status));
+    first = print_buffer(first, last, " | Tracker[%i:%i]: Connecting to %s %s",
+                         (*tl->focus())->group(), tl->focus_index(), (*tl->focus())->url().c_str(), status);
+
+  } else if (!d->message().empty()) {
+    first = print_buffer(first, last, " | %s", d->message().c_str());
+
+  } else {
+    *first = '\0';
+  }
+
+  if (first > last)
+    throw torrent::internal_error("print_download_minimal(...) wrote past end of the buffer.");
+
+  return first;
+}
+
+char* print_download_minimal_percentage_done(char* first, char* last, core::Download* d) {
+  if (!d->is_open() || d->is_done())
+    return print_buffer(first, last, "  ");
+
+  return print_buffer(first, last, "%2u", (d->download()->file_list()->completed_chunks() * 100) / d->download()->file_list()->size_chunks());
+}
+
+//// End minimal
+
 
 char*
 print_client_version(char* first, char* last, const torrent::ClientInfo& clientInfo) {
   switch (torrent::ClientInfo::version_size(clientInfo.type())) {
   case 4:
-    return print_buffer(first, last, "%s %hhu.%hhu.%hhu.%hhu",
+    return print_buffer(first, last, "%-12s %hhu.%hhu.%hhu.%hhu",
                         clientInfo.short_description(),
                         clientInfo.version()[0], clientInfo.version()[1],
                         clientInfo.version()[2], clientInfo.version()[3]);
   case 3:
-    return print_buffer(first, last, "%s %hhu.%hhu.%hhu",
+    return print_buffer(first, last, "%-12s %hhu.%hhu.%hhu",
                         clientInfo.short_description(),
                         clientInfo.version()[0], clientInfo.version()[1],
                         clientInfo.version()[2]);
   default:
-    return print_buffer(first, last, "%s", clientInfo.short_description());
+    return print_buffer(first, last, "%s",
+                        std::strncmp(clientInfo.short_description(), "Unknown", 7) ? clientInfo.short_description() : " ");
   }
 }
 

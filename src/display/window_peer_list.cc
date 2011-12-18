@@ -77,7 +77,7 @@ WindowPeerList::redraw() {
   m_canvas->print(x, y, "DONE");    x += 6;
   m_canvas->print(x, y, "REQ");     x += 6;
   m_canvas->print(x, y, "SNUB");    x += 6;
-  m_canvas->print(x, y, "FAILED");
+  m_canvas->print(x, y, "FAIL");
 
   ++y;
 
@@ -147,7 +147,7 @@ WindowPeerList::redraw() {
     if (p->failed_counter() != 0)
       m_canvas->print(x, y, "%u", p->failed_counter());
 
-    x += 7;
+    x += 5;
 
     char buf[128];
     print_client_version(buf, buf + 128, p->peer_info()->client_info());

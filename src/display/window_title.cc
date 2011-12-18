@@ -48,6 +48,7 @@ WindowTitle::redraw() {
 
   m_canvas->print(std::max(0, ((int)m_canvas->width() - (int)m_title.size()) / 2 - 4), 0,
                   "*** %s ***", m_title.c_str());
+  m_canvas->set_attr(0, 0, m_canvas->get_screen_width(), A_REVERSE, 0);
 }
 
 }
