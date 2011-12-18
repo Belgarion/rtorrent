@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -51,6 +51,8 @@ class CurlStack;
 
 class CurlGet : public torrent::Http {
 public:
+  friend class CurlStack;
+
   CurlGet(CurlStack* s) : m_active(false), m_handle(NULL), m_stack(s) {}
   virtual ~CurlGet();
 

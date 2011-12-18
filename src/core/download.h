@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -60,6 +60,7 @@ public:
   typedef torrent::FileList             file_list_type;
   typedef torrent::PeerList             peer_list_type;
   typedef torrent::TrackerList          tracker_list_type;
+  typedef torrent::TrackerController    tracker_controller_type;
   typedef torrent::ConnectionList       connection_list_type;
   typedef download_type::ConnectionType connection_type;
 
@@ -71,7 +72,10 @@ public:
   Download(download_type d);
   ~Download();
 
-  const torrent::DownloadInfo* info() const                             { return m_download.info(); }
+  const torrent::DownloadInfo*  info() const                    { return m_download.info(); }
+  const torrent::download_data* data() const                    { return m_download.data(); }
+
+  torrent::DownloadMain* main()                                { return m_download.main(); }
 
   bool                is_open() const                          { return m_download.info()->is_open(); }
   bool                is_active() const                        { return m_download.info()->is_active(); }
@@ -102,6 +106,8 @@ public:
   tracker_list_type*  tracker_list()                           { return m_download.tracker_list(); }
   uint32_t            tracker_list_size() const                { return m_download.tracker_list()->size(); }
 
+  tracker_controller_type* tracker_controller()                { return m_download.tracker_controller(); }
+
   connection_list_type* connection_list()                      { return m_download.connection_list(); }
   uint32_t              connection_list_size() const;
 
@@ -126,6 +132,10 @@ public:
 
   float               distributed_copies() const;
 
+  // HACK: Choke group setting.
+  unsigned int        group() const { return m_group; }
+  void                set_group(unsigned int g) { m_group = g; }
+
 private:
   Download(const Download&);
   void operator () (const Download&);
@@ -148,6 +158,8 @@ private:
   sigc::connection    m_connTrackerSucceeded;
   sigc::connection    m_connTrackerFailed;
   sigc::connection    m_connStorageError;
+
+  unsigned int        m_group;
 };
 
 inline bool

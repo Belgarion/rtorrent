@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -80,6 +80,9 @@ public:
   bool operator == (const fixed_key_type& rhs) const { return m_size == rhs.m_size && std::memcmp(m_data, rhs.m_data, m_size) == 0; }
   bool operator != (const fixed_key_type& rhs) const { return m_size != rhs.m_size || std::memcmp(m_data, rhs.m_data, m_size) != 0; }
 
+  bool operator == (const torrent::raw_string& rhs) const { return m_size == rhs.size() && std::memcmp(m_data, rhs.data(), m_size) == 0; }
+  bool operator != (const torrent::raw_string& rhs) const { return m_size != rhs.size() || std::memcmp(m_data, rhs.data(), m_size) != 0; }
+
   bool operator == (const std::string& rhs) const { return m_size == rhs.size() && std::memcmp(m_data, rhs.data(), m_size) == 0; }
 
 private:
@@ -109,6 +112,11 @@ struct hash_fixed_key_type {
     return result;
   }
 };
+
+template <size_t MaxSize>
+bool operator == (const torrent::raw_string& lhs, const fixed_key_type<MaxSize>& rhs) {
+  return lhs.size() == rhs.size() && std::memcmp(lhs.data(), rhs.data(), lhs.size()) == 0;
+}
 
 }
 

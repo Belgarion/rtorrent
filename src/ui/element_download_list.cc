@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -39,6 +39,7 @@
 #include <sigc++/adaptors/bind.h>
 #include <torrent/exceptions.h>
 #include <torrent/object.h>
+#include <torrent/utils/log.h>
 
 #include "core/download.h"
 #include "core/manager.h"
@@ -92,8 +93,9 @@ ElementDownloadList::ElementDownloadList() :
   m_bindings['6']           = sigc::bind(sigc::mem_fun(*this, &ElementDownloadList::receive_change_view), "incomplete");
   m_bindings['7']           = sigc::bind(sigc::mem_fun(*this, &ElementDownloadList::receive_change_view), "hashing");
   m_bindings['8']           = sigc::bind(sigc::mem_fun(*this, &ElementDownloadList::receive_change_view), "seeding");
-  m_bindings['9']           = sigc::bind(sigc::mem_fun(*this, &ElementDownloadList::receive_change_view), "active");
-  m_bindings['0']           = sigc::bind(sigc::mem_fun(*this, &ElementDownloadList::receive_change_view), "minimal");
+  m_bindings['9']           = sigc::bind(sigc::mem_fun(*this, &ElementDownloadList::receive_change_view), "leeching");
+  m_bindings['0']           = sigc::bind(sigc::mem_fun(*this, &ElementDownloadList::receive_change_view), "active");
+  m_bindings['m']           = sigc::bind(sigc::mem_fun(*this, &ElementDownloadList::receive_change_view), "minimal");
 
   m_bindings[KEY_UP]   = m_bindings['P' - '@'] = sigc::mem_fun(*this, &ElementDownloadList::receive_prev);
   m_bindings[KEY_DOWN] = m_bindings['N' - '@'] = sigc::mem_fun(*this, &ElementDownloadList::receive_next);
@@ -152,7 +154,7 @@ ElementDownloadList::receive_command(const char* cmd) {
     m_view->set_last_changed();
 
   } catch (torrent::input_error& e) {
-    control->core()->push_log(e.what());
+    lt_log_print(torrent::LOG_WARN, "Command failed: %s", e.what());
     return;
   }
 }
@@ -194,7 +196,7 @@ ElementDownloadList::receive_cycle_throttle() {
 
   core::Download* download = *m_view->focus();
   if (download->is_active()) {
-    control->core()->push_log("Cannot change throttle on active download.");
+    lt_log_print(torrent::LOG_TORRENT_WARN, "Cannot change throttle on active download.");
     return;
   }
 

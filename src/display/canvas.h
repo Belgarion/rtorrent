@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -48,8 +48,7 @@ class Canvas {
 public:
   typedef std::vector<Attributes> attributes_list;
 
-  Canvas(int x = 0, int y = 0, int width = 0, int height = 0) :
-    m_window(newwin(height, width, y, x)) {}
+  Canvas(int x = 0, int y = 0, int width = 0, int height = 0);
   ~Canvas() { delwin(m_window); }
 
   void                refresh()                                               { wnoutrefresh(m_window); }
@@ -96,7 +95,7 @@ public:
 
   void                set_attr(unsigned int x, unsigned int y, unsigned int n, int attr, int color) { mvwchgat(m_window, y, x, n, attr, color, NULL); }
 
-  void                set_default_attributes(int attr)                            { wattrset(m_window, attr); }
+  void                set_default_attributes(int attr)                            { (void)wattrset(m_window, attr); }
 
   // Initialize stdscr.
   static void         initialize();

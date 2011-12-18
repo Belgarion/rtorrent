@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent library
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -56,12 +56,13 @@ ThreadWorker::ThreadWorker() {
 }
 
 ThreadWorker::~ThreadWorker() {
+  if (m_safe.scgi)
+    m_safe.scgi->deactivate();
 }
 
 void
 ThreadWorker::init_thread() {
-  m_pollManager = core::PollManager::create_poll_manager();
-
+  m_poll = core::create_poll();
   m_state = STATE_INITIALIZED;
 }
 

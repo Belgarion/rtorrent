@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -46,6 +46,13 @@
 namespace display {
 
 bool Canvas::m_isInitialized = false;
+
+Canvas::Canvas(int x, int y, int width, int height) :
+  m_window(newwin(height, width, y, x)) {
+
+  if (m_window == NULL)
+    throw torrent::internal_error("Could not allocate ncurses canvas.");
+}
 
 void
 Canvas::resize(int x, int y, int w, int h) {

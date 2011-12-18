@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -102,7 +102,7 @@ ViewManager::sort(const std::string& name, uint32_t timeout) {
 }
 
 void
-ViewManager::set_filter(const std::string& name, const std::string& cmd) {
+ViewManager::set_filter(const std::string& name, const torrent::Object& cmd) {
   iterator viewItr = find_throw(name);
 
   (*viewItr)->set_filter(cmd);
@@ -114,6 +114,8 @@ ViewManager::set_filter_on(const std::string& name, const filter_args& args) {
   iterator viewItr = find_throw(name);
 
   (*viewItr)->clear_filter_on();
+
+  // TODO: Ensure the filter keys are rlookup.
 
   for (filter_args::const_iterator itr = args.begin(); itr != args.end(); ++itr)
     (*viewItr)->set_filter_on_event(*itr);

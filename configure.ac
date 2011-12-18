@@ -1,4 +1,4 @@
-AC_INIT(rtorrent, 0.8.7, jaris@ifi.uio.no)
+AC_INIT(rtorrent, 0.9.0, jaris@ifi.uio.no)
 
 AM_INIT_AUTOMAKE
 AM_CONFIG_HEADER(config.h)
@@ -28,6 +28,10 @@ AC_CHECK_FUNC(use_default_colors, AC_DEFINE([HAVE_NCURSES_USE_DEFAULT_COLORS], [
 TORRENT_WITHOUT_STATVFS()
 TORRENT_WITHOUT_STATFS()
 
+ACX_PTHREAD(CXXFLAGS="$CXXFLAGS $PTHREAD_CFLAGS";
+            LIBS="$PTHREAD_LIBS $LIBS"
+)
+
 PKG_CHECK_MODULES(sigc, sigc++-2.0,
 	          CXXFLAGS="$CXXFLAGS $sigc_CFLAGS";
 		  LIBS="$LIBS $sigc_LIBS")
@@ -36,7 +40,7 @@ PKG_CHECK_MODULES(libcurl, libcurl >= 7.15.4,
 	          CXXFLAGS="$CXXFLAGS $libcurl_CFLAGS";
 		  LIBS="$LIBS $libcurl_LIBS")
 
-PKG_CHECK_MODULES(libtorrent, libtorrent >= 0.12.7,
+PKG_CHECK_MODULES(libtorrent, libtorrent >= 0.13.0,
 	          CXXFLAGS="$CXXFLAGS $libtorrent_CFLAGS";
 		  LIBS="$LIBS $libtorrent_LIBS")
 
@@ -49,6 +53,7 @@ AC_DEFINE(USER_AGENT, [std::string(PACKAGE "/" VERSION "/") + torrent::version()
 
 AC_CHECK_FUNCS(posix_memalign)
 TORRENT_CHECK_CACHELINE()
+TORRENT_CHECK_POPCOUNT()
 
 CC_ATTRIBUTE_UNUSED(
 	AC_DEFINE([__UNUSED], [__attribute__((unused))], [Wrapper around unused attribute]),

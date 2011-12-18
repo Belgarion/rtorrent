@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -36,7 +36,9 @@
 
 #include "config.h"
 
+#include <signal.h>
 #include <stdexcept>
+#include "rak/error_number.h"
 #include "signal_handler.h"
 
 SignalHandler::Slot SignalHandler::m_handlers[HIGHEST_SIGNAL];
@@ -69,6 +71,21 @@ SignalHandler::set_handler(unsigned int signum, Slot slot) {
 
   signal(signum, &SignalHandler::caught);
   m_handlers[signum] = slot;
+}
+
+void
+SignalHandler::set_sigaction_handler(unsigned int signum, handler_slot slot) {
+  if (signum > HIGHEST_SIGNAL)
+    throw std::logic_error("SignalHandler::set_handler(...) received invalid signal value.");
+
+  struct sigaction sa;
+  sa.sa_sigaction = slot;
+  sa.sa_flags = SA_SIGINFO;
+
+  sigemptyset(&sa.sa_mask);
+
+  if (sigaction(signum, &sa, NULL) == -1)
+    throw std::logic_error("Could not set sigaction: " + std::string(rak::error_number::current().c_str()));
 }
 
 void

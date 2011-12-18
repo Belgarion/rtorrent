@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -34,30 +34,56 @@
 //           Skomakerveien 33
 //           3185 Skoppum, NORWAY
 
-#ifndef RTORRENT_CORE_POLL_MANAGER_KQUEUE_H
-#define RTORRENT_CORE_POLL_MANAGER_KQUEUE_H
+#ifndef RTORRENT_RPC_IP_TABLE_LISTS_H
+#define RTORRENT_RPC_IP_TABLE_LISTS_H
 
-#include "poll_manager.h"
+#include <algorithm>
+#include <functional>
+#include <string>
+#include <vector>
+#include <torrent/utils/extents.h>
 
-namespace torrent {
-  class PollKQueue;
+namespace rpc {
+
+typedef torrent::extents<uint32_t, int, 32, 256, 8> ipv4_table;
+
+struct ip_table_node {
+  std::string name;
+  ipv4_table  table;
+
+  bool equal_name(const std::string& str) const { return str == name; }
+};
+
+class ip_table_list : private std::vector<ip_table_node> {
+public:
+  typedef std::vector<ip_table_node> base_type;
+
+  using base_type::iterator;
+  using base_type::const_iterator;
+  using base_type::value_type;
+
+  using base_type::begin;
+  using base_type::end;
+  
+  iterator insert(const std::string& name);
+  iterator find(const std::string& name);
+};
+
+inline ip_table_list::iterator
+ip_table_list::insert(const std::string& name) {
+  ip_table_node tmp = { name };
+
+  return base_type::insert(end(), tmp);
 }
 
-namespace core {
+inline ip_table_list::iterator
+ip_table_list::find(const std::string& name) {
+  for (iterator itr = begin(), last = end(); itr != last; itr++)
+    if (itr->equal_name(name))
+      return itr;
 
-class PollManagerKQueue : public PollManager {
-public:
-  static PollManagerKQueue* create(int maxOpenSockets);
-  ~PollManagerKQueue();
-
-  torrent::Poll*      get_torrent_poll();
-
-  void                poll(rak::timer timeout);
-  void                poll_simple(rak::timer timeout);
-
-private:
-  PollManagerKQueue(torrent::Poll* p) : PollManager(p) {}
-};
+  return end();
+}
 
 }
 

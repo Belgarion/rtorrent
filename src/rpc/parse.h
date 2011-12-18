@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -64,6 +64,7 @@ inline bool parse_is_delim_list(const char c)    { return parse_is_seperator(c) 
 inline bool parse_is_delim_command(const char c) { return parse_is_seperator(c) || c == ';' || std::isspace(c); }
 // inline bool parse_is_delim_block(const char c)   { return c == ';' || c == '}'; }
 inline bool parse_is_delim_block(const char c)   { return parse_is_seperator(c) || c == '}'; }
+inline bool parse_is_delim_func(const char c)    { return parse_is_seperator(c) || c == ')'; }
 
 const char* parse_skip_wspace(const char* first);
 const char* parse_skip_wspace(const char* first, const char* last);

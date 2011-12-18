@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -51,6 +51,7 @@
 #include <torrent/tracker_list.h>
 #include <torrent/data/file_list.h>
 #include <torrent/data/file_manager.h>
+#include <torrent/download/resource_manager.h>
 #include <torrent/peer/client_info.h>
 
 #include "core/download.h"
@@ -224,13 +225,15 @@ print_download_status(char* first, char* last, core::Download* d) {
     first = print_buffer(first, last, "Checking hash [%2i%%]",
                          (d->download()->chunks_hashed() * 100) / d->download()->file_list()->size_chunks());
 
-  } else if (d->tracker_list()->has_active() && d->tracker_list()->focus() < d->tracker_list()->end()) {
-    torrent::TrackerList* tl = d->tracker_list();
+  } else if (d->tracker_list()->has_active_not_scrape()) {
+    torrent::TrackerList::iterator itr =
+      std::find_if(d->tracker_list()->begin(), d->tracker_list()->end(),
+                   std::mem_fun(&torrent::Tracker::is_busy_not_scrape));
     char status[128];
 
-    (*tl->focus())->get_status(status, sizeof(status));
+    (*itr)->get_status(status, sizeof(status));
     first = print_buffer(first, last, "Tracker[%i:%i]: Connecting to %s %s",
-                         (*tl->focus())->group(), tl->focus_index(), (*tl->focus())->url().c_str(), status);
+                         (*itr)->group(), std::distance(d->tracker_list()->begin(), itr), (*itr)->url().c_str(), status);
 
   } else if (!d->message().empty()) {
     first = print_buffer(first, last, "%s", d->message().c_str());
@@ -336,13 +339,15 @@ print_download_minimal(char* first, char* last, core::Download* d, double ratio)
     first = print_buffer(first, last, " | Checking hash [%2i%%]",
                          (d->download()->chunks_hashed() * 100) / d->download()->file_list()->size_chunks());
 
-  } else if (d->tracker_list()->has_active() && d->tracker_list()->focus() < d->tracker_list()->end()) {
-    torrent::TrackerList* tl = d->tracker_list();
+  } else if (d->tracker_list()->has_active_not_scrape()) {
+    torrent::TrackerList::iterator itr =
+      std::find_if(d->tracker_list()->begin(), d->tracker_list()->end(),
+                   std::mem_fun(&torrent::Tracker::is_busy_not_scrape));
     char status[128];
 
-    (*tl->focus())->get_status(status, sizeof(status));
+    (*itr)->get_status(status, sizeof(status));
     first = print_buffer(first, last, " | Tracker[%i:%i]: Connecting to %s %s",
-                         (*tl->focus())->group(), tl->focus_index(), (*tl->focus())->url().c_str(), status);
+                         (*itr)->group(), std::distance(d->tracker_list()->begin(), itr), (*itr)->url().c_str(), status);
 
   } else if (!d->message().empty()) {
     first = print_buffer(first, last, " | %s", d->message().c_str());
@@ -425,12 +430,12 @@ print_status_info(char* first, char* last) {
 char*
 print_status_extra(char* first, char* last) {
   first = print_buffer(first, last, " [U %i/%i]",
-                       torrent::currently_unchoked(),
-                       torrent::max_unchoked());
+                       torrent::resource_manager()->currently_upload_unchoked(),
+                       torrent::resource_manager()->max_upload_unchoked());
 
   first = print_buffer(first, last, " [D %i/%i]",
-                       torrent::download_unchoked(),
-                       torrent::max_download_unchoked());
+                       torrent::resource_manager()->currently_download_unchoked(),
+                       torrent::resource_manager()->max_download_unchoked());
 
   first = print_buffer(first, last, " [H %u/%u]",
                        control->core()->http_stack()->active(),

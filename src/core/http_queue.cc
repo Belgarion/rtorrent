@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -46,6 +46,8 @@
 #include "http_queue.h"
 #include "curl_get.h"
 
+namespace std { using namespace tr1; }
+
 namespace core {
 
 HttpQueue::iterator
@@ -58,8 +60,8 @@ HttpQueue::insert(const std::string& url, std::iostream* s) {
 
   iterator itr = Base::insert(end(), h.get());
 
-  h->signal_done().connect(sigc::bind(sigc::mem_fun(this, &HttpQueue::erase), itr));
-  h->signal_failed().connect(sigc::bind<0>(sigc::hide(sigc::mem_fun(this, &HttpQueue::erase)), itr));
+  h->signal_done().push_back(std::bind(&HttpQueue::erase, this, itr));
+  h->signal_failed().push_back(std::bind(&HttpQueue::erase, this, itr));
 
   (*itr)->start();
 

@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -41,12 +41,16 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <rak/path.h>
+#include <rak/error_number.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <torrent/torrent.h>
 #include <torrent/chunk_manager.h>
 #include <torrent/data/file_manager.h>
 #include <torrent/data/chunk_utils.h>
+#include <torrent/utils/log.h>
+#include <torrent/utils/log_files.h>
+#include <torrent/utils/option_strings.h>
 
 #include "core/download.h"
 #include "core/download_list.h"
@@ -65,6 +69,18 @@ typedef torrent::ChunkManager CM_t;
 typedef torrent::FileManager  FM_t;
 
 torrent::Object
+apply_pieces_stats_total_size() {
+  uint64_t size = 0;
+  core::DownloadList* d_list = control->core()->download_list();
+
+  for (core::DownloadList::iterator itr = d_list->begin(), last = d_list->end(); itr != last; itr++)
+    if ((*itr)->is_active())
+      size += (*itr)->file_list()->size_bytes();
+
+  return size;
+}
+
+torrent::Object
 apply_log(const torrent::Object::string_type& arg, int logType) {
   if (rpc::execFile.log_fd() != -1) {
     switch (logType) {
@@ -79,7 +95,7 @@ apply_log(const torrent::Object::string_type& arg, int logType) {
     }
   }
 
-  if (arg.empty()) {
+  if (!arg.empty()) {
     int logFd = open(rak::path_expand(arg).c_str(), O_WRONLY | O_APPEND | O_CREAT, 0644);
 
     if (logFd < 0)
@@ -96,6 +112,27 @@ apply_log(const torrent::Object::string_type& arg, int logType) {
   } else {
     control->core()->push_log("Closed log file.");
   }
+
+  return torrent::Object();
+}
+
+torrent::Object
+apply_log_libtorrent(const torrent::Object::list_type& args) {
+  if (args.empty() || args.size() > 2)
+    throw torrent::input_error("Invalid argument count.");
+  
+  torrent::log_file* log_file = torrent::find_log_file(args.front().as_string().c_str());
+
+  if (log_file == NULL)
+    throw torrent::input_error("Invalid log name.");
+
+  if (args.size() == 1) {
+    log_file->close();
+    return torrent::Object();
+  }
+  
+  if (!log_file->open_file(args.back().as_string().c_str()))
+    throw torrent::input_error("Could not open log file.");
 
   return torrent::Object();
 }
@@ -211,10 +248,73 @@ log_vmmap_dump(const std::string& str) {
   FILE* log_file = fopen(str.c_str(), "w");
 
   for (std::vector<torrent::vm_mapping>::iterator itr = all_mappings.begin(), last = all_mappings.end(); itr != last; itr++) {
-    fprintf(log_file, "%8p-%8p [%5llxk]\n", itr->ptr, (char*)itr->ptr + itr->length, itr->length / 1024);
+    fprintf(log_file, "%8p-%8p [%5llxk]\n", itr->ptr, (char*)itr->ptr + itr->length, (long long unsigned int)(itr->length / 1024));
   }
 
   fclose(log_file);
+  return torrent::Object();
+}
+
+static const int file_print_use_space = 0x1;
+static const int file_print_delim_space = 0x2;
+
+void
+file_print_list(torrent::Object::list_const_iterator first, torrent::Object::list_const_iterator last, FILE* output, int flags) {
+  while (first != last) {
+    switch (first->type()) {
+    case torrent::Object::TYPE_STRING:
+      fprintf(output, " %s" + !(flags & file_print_use_space), first->as_string().c_str());
+      break;
+    case torrent::Object::TYPE_VALUE:
+      fprintf(output, " %lli" + !(flags & file_print_use_space), first->as_value());
+      break;
+    case torrent::Object::TYPE_LIST:
+      file_print_list(first->as_list().begin(), first->as_list().end(), output, 0);
+      break;
+    case torrent::Object::TYPE_NONE:
+      break;
+    default:
+      throw torrent::input_error("Invalid type.");
+    }
+
+    flags |= (flags & file_print_delim_space) >> 1;
+    first++;
+  }
+}
+
+torrent::Object
+cmd_file_append(const torrent::Object::list_type& args) {
+  if (args.empty())
+    throw torrent::input_error("Invalid number of arguments.");
+  
+  FILE* output = fopen(args.front().as_string().c_str(), "a");
+  
+  if (output == NULL)
+    throw torrent::input_error("Could not append to file '" + args.front().as_string() + "': " + rak::error_number::current().c_str());
+
+  file_print_list(++args.begin(), args.end(), output, file_print_delim_space);
+
+  fprintf(output, "\n");
+  fclose(output);
+  return torrent::Object();
+}
+
+torrent::Object
+apply_log_open_file(const torrent::Object::list_type& args) {
+  if (args.size() != 2)
+    throw torrent::input_error("Invalid number of arguments.");
+  
+  torrent::log_open_file_output(args.front().as_string().c_str(), args.back().as_string().c_str());
+  return torrent::Object();
+}
+
+torrent::Object
+apply_log_add_output(const torrent::Object::list_type& args) {
+  if (args.size() != 2)
+    throw torrent::input_error("Invalid number of arguments.");
+  
+  torrent::log_add_group_output(torrent::option_find_string(torrent::OPTION_LOG_GROUP, args.front().as_string().c_str()),
+                                args.back().as_string().c_str());
   return torrent::Object();
 }
 
@@ -225,54 +325,64 @@ initialize_command_local() {
   core::DownloadList*    dList = control->core()->download_list();
   core::DownloadStore*   dStore = control->core()->download_store();
 
-  CMD2_ANY         ("system.hostname", std::tr1::bind(&system_hostname));
-  CMD2_ANY         ("system.pid",      std::tr1::bind(&getpid));
+  CMD2_ANY         ("system.hostname", std::bind(&system_hostname));
+  CMD2_ANY         ("system.pid",      std::bind(&getpid));
 
   CMD2_VAR_C_STRING("system.client_version",        PACKAGE_VERSION);
   CMD2_VAR_C_STRING("system.library_version",       torrent::version());
   CMD2_VAR_VALUE   ("system.file.allocate",         0);
-  CMD2_VAR_VALUE   ("system.file.max_size",         -1);
+  CMD2_VAR_VALUE   ("system.file.max_size",         (int64_t)64 << 30);
   CMD2_VAR_VALUE   ("system.file.split_size",       -1);
   CMD2_VAR_STRING  ("system.file.split_suffix",     ".part");
 
-  CMD2_ANY         ("system.file_status_cache.size",   std::tr1::bind(&utils::FileStatusCache::size,
+  CMD2_ANY         ("system.file_status_cache.size",   std::bind(&utils::FileStatusCache::size,
                                                                       (utils::FileStatusCache::base_type*)control->core()->file_status_cache()));
-  CMD2_ANY_V       ("system.file_status_cache.prune",  std::tr1::bind(&utils::FileStatusCache::prune, control->core()->file_status_cache()));
+  CMD2_ANY_V       ("system.file_status_cache.prune",  std::bind(&utils::FileStatusCache::prune, control->core()->file_status_cache()));
 
-  CMD2_ANY         ("system.files.opened_counter",     std::tr1::bind(&FM_t::files_opened_counter, fileManager));
-  CMD2_ANY         ("system.files.closed_counter",     std::tr1::bind(&FM_t::files_closed_counter, fileManager));
-  CMD2_ANY         ("system.files.failed_counter",     std::tr1::bind(&FM_t::files_failed_counter, fileManager));
+  CMD2_VAR_BOOL    ("file.prioritize_toc",          0);
+  CMD2_VAR_LIST    ("file.prioritize_toc.first");
+  CMD2_VAR_LIST    ("file.prioritize_toc.last");
 
-  CMD2_ANY         ("system.time",                     std::tr1::bind(&rak::timer::seconds, &cachedTime));
-  CMD2_ANY         ("system.time_seconds",             std::tr1::bind(&rak::timer::current_seconds));
-  CMD2_ANY         ("system.time_usec",                std::tr1::bind(&rak::timer::current_usec));
+  CMD2_ANY         ("system.files.opened_counter",     std::bind(&FM_t::files_opened_counter, fileManager));
+  CMD2_ANY         ("system.files.closed_counter",     std::bind(&FM_t::files_closed_counter, fileManager));
+  CMD2_ANY         ("system.files.failed_counter",     std::bind(&FM_t::files_failed_counter, fileManager));
 
-  CMD2_ANY_VALUE_V ("system.umask.set",                std::tr1::bind(&umask, std::tr1::placeholders::_2));
+  CMD2_ANY         ("system.time",                     std::bind(&rak::timer::seconds, &cachedTime));
+  CMD2_ANY         ("system.time_seconds",             std::bind(&rak::timer::current_seconds));
+  CMD2_ANY         ("system.time_usec",                std::bind(&rak::timer::current_usec));
 
-  CMD2_ANY         ("system.cwd",                      std::tr1::bind(&system_get_cwd));
-  CMD2_ANY_STRING  ("system.cwd.set",                  std::tr1::bind(&system_set_cwd, std::tr1::placeholders::_2));
+  CMD2_ANY_VALUE_V ("system.umask.set",                std::bind(&umask, std::placeholders::_2));
 
-  CMD2_ANY         ("pieces.sync.always_safe",         std::tr1::bind(&CM_t::safe_sync, chunkManager));
-  CMD2_ANY_VALUE_V ("pieces.sync.always_safe.set",     std::tr1::bind(&CM_t::set_safe_sync, chunkManager, std::tr1::placeholders::_2));
-  CMD2_ANY         ("pieces.sync.safe_free_diskspace", std::tr1::bind(&CM_t::safe_free_diskspace, chunkManager));
-  CMD2_ANY         ("pieces.sync.timeout",             std::tr1::bind(&CM_t::timeout_sync, chunkManager));
-  CMD2_ANY_VALUE_V ("pieces.sync.timeout.set",         std::tr1::bind(&CM_t::set_timeout_sync, chunkManager, std::tr1::placeholders::_2));
-  CMD2_ANY         ("pieces.sync.timeout_safe",        std::tr1::bind(&CM_t::timeout_safe_sync, chunkManager));
-  CMD2_ANY_VALUE_V ("pieces.sync.timeout_safe.set",    std::tr1::bind(&CM_t::set_timeout_safe_sync, chunkManager, std::tr1::placeholders::_2));
+  CMD2_ANY         ("system.cwd",                      std::bind(&system_get_cwd));
+  CMD2_ANY_STRING  ("system.cwd.set",                  std::bind(&system_set_cwd, std::placeholders::_2));
 
-  CMD2_ANY         ("pieces.preload.type",             std::tr1::bind(&CM_t::preload_type, chunkManager));
-  CMD2_ANY_VALUE_V ("pieces.preload.type.set",         std::tr1::bind(&CM_t::set_preload_type, chunkManager, std::tr1::placeholders::_2));
-  CMD2_ANY         ("pieces.preload.min_size",         std::tr1::bind(&CM_t::preload_min_size, chunkManager));
-  CMD2_ANY_VALUE_V ("pieces.preload.min_size.set",     std::tr1::bind(&CM_t::set_preload_min_size, chunkManager, std::tr1::placeholders::_2));
-  CMD2_ANY         ("pieces.preload.min_rate",         std::tr1::bind(&CM_t::preload_required_rate, chunkManager));
-  CMD2_ANY_VALUE_V ("pieces.preload.min_rate.set",     std::tr1::bind(&CM_t::set_preload_required_rate, chunkManager, std::tr1::placeholders::_2));
+  CMD2_ANY         ("pieces.sync.always_safe",         std::bind(&CM_t::safe_sync, chunkManager));
+  CMD2_ANY_VALUE_V ("pieces.sync.always_safe.set",     std::bind(&CM_t::set_safe_sync, chunkManager, std::placeholders::_2));
+  CMD2_ANY         ("pieces.sync.safe_free_diskspace", std::bind(&CM_t::safe_free_diskspace, chunkManager));
+  CMD2_ANY         ("pieces.sync.timeout",             std::bind(&CM_t::timeout_sync, chunkManager));
+  CMD2_ANY_VALUE_V ("pieces.sync.timeout.set",         std::bind(&CM_t::set_timeout_sync, chunkManager, std::placeholders::_2));
+  CMD2_ANY         ("pieces.sync.timeout_safe",        std::bind(&CM_t::timeout_safe_sync, chunkManager));
+  CMD2_ANY_VALUE_V ("pieces.sync.timeout_safe.set",    std::bind(&CM_t::set_timeout_safe_sync, chunkManager, std::placeholders::_2));
+  CMD2_ANY         ("pieces.sync.queue_size",          std::bind(&CM_t::sync_queue_size, chunkManager));
 
-  CMD2_ANY         ("pieces.memory.current",           std::tr1::bind(&CM_t::memory_usage, chunkManager));
-  CMD2_ANY         ("pieces.memory.max",               std::tr1::bind(&CM_t::max_memory_usage, chunkManager));
-  CMD2_ANY_VALUE_V ("pieces.memory.max.set",           std::tr1::bind(&CM_t::set_max_memory_usage, chunkManager, std::tr1::placeholders::_2));
-  CMD2_ANY         ("pieces.stats_preloaded",          std::tr1::bind(&CM_t::stats_preloaded, chunkManager));
-  CMD2_ANY         ("pieces.stats_not_preloaded",      std::tr1::bind(&CM_t::stats_not_preloaded, chunkManager));
+  CMD2_ANY         ("pieces.preload.type",             std::bind(&CM_t::preload_type, chunkManager));
+  CMD2_ANY_VALUE_V ("pieces.preload.type.set",         std::bind(&CM_t::set_preload_type, chunkManager, std::placeholders::_2));
+  CMD2_ANY         ("pieces.preload.min_size",         std::bind(&CM_t::preload_min_size, chunkManager));
+  CMD2_ANY_VALUE_V ("pieces.preload.min_size.set",     std::bind(&CM_t::set_preload_min_size, chunkManager, std::placeholders::_2));
+  CMD2_ANY         ("pieces.preload.min_rate",         std::bind(&CM_t::preload_required_rate, chunkManager));
+  CMD2_ANY_VALUE_V ("pieces.preload.min_rate.set",     std::bind(&CM_t::set_preload_required_rate, chunkManager, std::placeholders::_2));
 
+  CMD2_ANY         ("pieces.memory.current",           std::bind(&CM_t::memory_usage, chunkManager));
+  CMD2_ANY         ("pieces.memory.sync_queue",        std::bind(&CM_t::sync_queue_memory_usage, chunkManager));
+  CMD2_ANY         ("pieces.memory.block_count",       std::bind(&CM_t::memory_block_count, chunkManager));
+  CMD2_ANY         ("pieces.memory.max",               std::bind(&CM_t::max_memory_usage, chunkManager));
+  CMD2_ANY_VALUE_V ("pieces.memory.max.set",           std::bind(&CM_t::set_max_memory_usage, chunkManager, std::placeholders::_2));
+  CMD2_ANY         ("pieces.stats_preloaded",          std::bind(&CM_t::stats_preloaded, chunkManager));
+  CMD2_ANY         ("pieces.stats_not_preloaded",      std::bind(&CM_t::stats_not_preloaded, chunkManager));
+
+  CMD2_ANY         ("pieces.stats.total_size",         std::bind(&apply_pieces_stats_total_size));
+
+  CMD2_ANY         ("pieces.hash.queue_size",          std::bind(&torrent::hash_queue_size));
   CMD2_VAR_BOOL    ("pieces.hash.on_completion",       true);
 
   CMD2_VAR_STRING  ("directory.default",       "./");
@@ -281,35 +391,45 @@ initialize_command_local() {
   CMD2_VAR_BOOL    ("session.use_lock",        true);
   CMD2_VAR_BOOL    ("session.on_completion",   true);
 
-  CMD2_ANY         ("session.path",            std::tr1::bind(&core::DownloadStore::path, dStore));
-  CMD2_ANY_STRING_V("session.path.set",        std::tr1::bind(&core::DownloadStore::set_path, dStore, std::tr1::placeholders::_2));
+  CMD2_ANY         ("session.path",            std::bind(&core::DownloadStore::path, dStore));
+  CMD2_ANY_STRING_V("session.path.set",        std::bind(&core::DownloadStore::set_path, dStore, std::placeholders::_2));
 
-  CMD2_ANY_V       ("session.save",            std::tr1::bind(&core::DownloadList::session_save, dList));
+  CMD2_ANY_V       ("session.save",            std::bind(&core::DownloadList::session_save, dList));
 
 #define CMD2_EXECUTE(key, flags)                                         \
-  CMD2_ANY(key, std::tr1::bind(&rpc::ExecFile::execute_object, &rpc::execFile, std::tr1::placeholders::_2, flags));
+  CMD2_ANY(key, std::bind(&rpc::ExecFile::execute_object, &rpc::execFile, std::placeholders::_2, flags));
 
   CMD2_EXECUTE     ("execute2",                rpc::ExecFile::flag_expand_tilde | rpc::ExecFile::flag_throw);
   CMD2_EXECUTE     ("execute.throw",           rpc::ExecFile::flag_expand_tilde | rpc::ExecFile::flag_throw);
+  CMD2_EXECUTE     ("execute.throw.bg",        rpc::ExecFile::flag_expand_tilde | rpc::ExecFile::flag_throw | rpc::ExecFile::flag_background);
   CMD2_EXECUTE     ("execute.nothrow",         rpc::ExecFile::flag_expand_tilde);
+  CMD2_EXECUTE     ("execute.nothrow.bg",      rpc::ExecFile::flag_expand_tilde | rpc::ExecFile::flag_background);
   CMD2_EXECUTE     ("execute.raw",             rpc::ExecFile::flag_throw);
+  CMD2_EXECUTE     ("execute.raw.bg",          rpc::ExecFile::flag_throw | rpc::ExecFile::flag_background);
   CMD2_EXECUTE     ("execute.raw_nothrow",     0);
+  CMD2_EXECUTE     ("execute.raw_nothrow.bg",  rpc::ExecFile::flag_background);
   CMD2_EXECUTE     ("execute.capture",         rpc::ExecFile::flag_throw | rpc::ExecFile::flag_expand_tilde | rpc::ExecFile::flag_capture);
   CMD2_EXECUTE     ("execute.capture_nothrow", rpc::ExecFile::flag_expand_tilde | rpc::ExecFile::flag_capture);
 
-  CMD2_ANY_STRING  ("log.execute",    std::tr1::bind(&apply_log, std::tr1::placeholders::_2, 0));
-  CMD2_ANY_STRING  ("log.vmmap.dump", std::tr1::bind(&log_vmmap_dump, std::tr1::placeholders::_2));
-  CMD2_ANY_STRING_V("log.xmlrpc",     std::tr1::bind(&ThreadWorker::set_xmlrpc_log, worker_thread, std::tr1::placeholders::_2));
+  CMD2_ANY_LIST    ("log.open_file",  std::bind(&apply_log_open_file, std::placeholders::_2));
+  CMD2_ANY_LIST    ("log.add_output", std::bind(&apply_log_add_output, std::placeholders::_2));
+
+  CMD2_ANY_STRING  ("log.execute",    std::bind(&apply_log, std::placeholders::_2, 0));
+  CMD2_ANY_STRING  ("log.vmmap.dump", std::bind(&log_vmmap_dump, std::placeholders::_2));
+  CMD2_ANY_STRING_V("log.xmlrpc",     std::bind(&ThreadWorker::set_xmlrpc_log, worker_thread, std::placeholders::_2));
+  CMD2_ANY_LIST    ("log.libtorrent", std::bind(&apply_log_libtorrent, std::placeholders::_2));
+
+  CMD2_ANY_LIST    ("file.append",    std::bind(&cmd_file_append, std::placeholders::_2));
 
   // TODO: Convert to new command types:
   *rpc::command_base::argument(0) = "placeholder.0";
   *rpc::command_base::argument(1) = "placeholder.1";
   *rpc::command_base::argument(2) = "placeholder.2";
   *rpc::command_base::argument(3) = "placeholder.3";
-  CMD2_ANY_P("argument.0", std::tr1::bind(&rpc::command_base::argument_ref, 0));
-  CMD2_ANY_P("argument.1", std::tr1::bind(&rpc::command_base::argument_ref, 1));
-  CMD2_ANY_P("argument.2", std::tr1::bind(&rpc::command_base::argument_ref, 2));
-  CMD2_ANY_P("argument.3", std::tr1::bind(&rpc::command_base::argument_ref, 3));
+  CMD2_ANY_P("argument.0", std::bind(&rpc::command_base::argument_ref, 0));
+  CMD2_ANY_P("argument.1", std::bind(&rpc::command_base::argument_ref, 1));
+  CMD2_ANY_P("argument.2", std::bind(&rpc::command_base::argument_ref, 2));
+  CMD2_ANY_P("argument.3", std::bind(&rpc::command_base::argument_ref, 3));
 
-  CMD2_ANY_LIST  ("group.insert", std::tr1::bind(&group_insert, std::tr1::placeholders::_2));
+  CMD2_ANY_LIST  ("group.insert", std::bind(&group_insert, std::placeholders::_2));
 }

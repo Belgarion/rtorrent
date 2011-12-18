@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -49,6 +49,7 @@ public:
   static const int flag_expand_tilde = 0x1;
   static const int flag_throw        = 0x2;
   static const int flag_capture      = 0x4;
+  static const int flag_background   = 0x8;
 
   ExecFile() : m_logFd(-1) {}
 

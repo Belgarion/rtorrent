@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -54,6 +54,7 @@
 #include <vector>
 #include <rak/timer.h>
 #include <sigc++/signal.h>
+#include <torrent/object.h>
 
 #include "globals.h"
 
@@ -64,7 +65,6 @@ class Download;
 class View : private std::vector<Download*> {
 public:
   typedef std::vector<Download*>         base_type;
-  typedef std::vector<std::string>       event_list_type;
   typedef sigc::signal0<void>            signal_type;
 
   using base_type::iterator;
@@ -115,15 +115,15 @@ public:
 
   void                sort();
 
-  void                set_sort_new(const std::string& s)      { m_sortNew = s; }
-  void                set_sort_current(const std::string& s)  { m_sortCurrent = s; }
+  void                set_sort_new(const torrent::Object& s)      { m_sortNew = s; }
+  void                set_sort_current(const torrent::Object& s)  { m_sortCurrent = s; }
 
   // Need to explicity trigger filtering.
   void                filter();
   void                filter_download(core::Download* download);
 
-  const std::string&  get_filter() const { return m_filter; }
-  void                set_filter(const std::string& s)        { m_filter = s; }
+  const torrent::Object& get_filter() const { return m_filter; }
+  void                set_filter(const torrent::Object& s)        { m_filter = s; }
   void                set_filter_on_event(const std::string& event);
 
   void                clear_filter_on();
@@ -167,11 +167,10 @@ private:
   size_type           m_focus;
 
   // These should be replaced by a faster non-string command type.
-  std::string         m_sortNew;
-  std::string         m_sortCurrent;
+  torrent::Object     m_sortNew;
+  torrent::Object     m_sortCurrent;
 
-  std::string         m_filter;
-  event_list_type     m_events;
+  torrent::Object     m_filter;
 
   std::string         m_eventAdded;
   std::string         m_eventRemoved;

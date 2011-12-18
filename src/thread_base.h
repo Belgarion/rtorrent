@@ -1,5 +1,5 @@
 // libTorrent - BitTorrent library
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -39,7 +39,7 @@
 
 #include <pthread.h>
 #include <sys/types.h>
-#include <torrent/thread_base.h>
+#include <torrent/utils/thread_base.h>
 
 #include "rak/priority_queue_default.h"
 #include "core/poll_manager.h"
@@ -50,26 +50,15 @@ struct thread_queue_hack;
 
 struct thread_queue_hack;
 
-class ThreadBase : public torrent::ThreadBase {
+class ThreadBase : public torrent::thread_base {
 public:
   typedef rak::priority_queue_default priority_queue;
   typedef void (*thread_base_func)(ThreadBase*);
   typedef void* (*pthread_func)(void*);
 
-  enum state_type {
-    STATE_UNKNOWN,
-    STATE_INITIALIZED,
-    STATE_ACTIVE,
-    STATE_INACTIVE
-  };
-
   ThreadBase();
   virtual ~ThreadBase();
 
-  bool                is_active() const { return m_state == STATE_ACTIVE; }
-
-  torrent::Poll*      poll() { return m_pollManager->get_torrent_poll(); }
-  core::PollManager*  poll_manager() { return m_pollManager; }
   priority_queue&     task_scheduler() { return m_taskScheduler; }
 
   virtual void        init_thread() = 0;
@@ -82,8 +71,13 @@ public:
 
   void                queue_item(thread_base_func newFunc);
 
-  static void*        event_loop(ThreadBase* threadBase);
+  static void*        event_loop(ThreadBase* thread);
 
+  // Only call this when global lock has been acquired, as it checks
+  // ThreadBase::is_main_polling() which is only guaranteed to remain
+  // 'false' if global lock keeps main thread from entering polling
+  // again.
+  //
   // Move to libtorrent some day.
   static void         interrupt_main_polling();
 
@@ -92,12 +86,10 @@ protected:
 
   void                call_queued_items();
 
-  pthread_t           m_thread;
-  state_type          m_state;
+  // TODO: Add thread name.
 
   // The timer needs to be sync'ed when updated...
 
-  core::PollManager*          m_pollManager;
   rak::priority_queue_default m_taskScheduler;
 
   rak::priority_item  m_taskShutdown;

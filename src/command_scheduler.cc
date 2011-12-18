@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -66,7 +66,7 @@ cmd_scheduler_simple_removed(core::Download* download) {
   core::View* viewActive = *control->view_manager()->find("active");
   int64_t maxActive = rpc::call_command("scheduler.max_active", torrent::Object()).as_value();
 
-  if (viewActive->size_visible() >= maxActive)
+  if ((int64_t)viewActive->size_visible() >= maxActive)
     return torrent::Object();
 
   // The 'started' view contains all the views we may choose amongst.
@@ -115,7 +115,7 @@ void
 initialize_command_scheduler() {
   CMD2_VAR_VALUE("scheduler.max_active", int64_t(-1));
 
-  CMD2_DL("scheduler.simple.added",   std::tr1::bind(&cmd_scheduler_simple_added, std::tr1::placeholders::_1));
-  CMD2_DL("scheduler.simple.removed", std::tr1::bind(&cmd_scheduler_simple_removed, std::tr1::placeholders::_1));
-  CMD2_DL("scheduler.simple.update",  std::tr1::bind(&cmd_scheduler_simple_update, std::tr1::placeholders::_1));
+  CMD2_DL("scheduler.simple.added",   std::bind(&cmd_scheduler_simple_added, std::placeholders::_1));
+  CMD2_DL("scheduler.simple.removed", std::bind(&cmd_scheduler_simple_removed, std::placeholders::_1));
+  CMD2_DL("scheduler.simple.update",  std::bind(&cmd_scheduler_simple_update, std::placeholders::_1));
 }

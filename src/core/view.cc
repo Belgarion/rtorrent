@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -40,11 +40,12 @@
 #include <functional>
 #include <rak/functional.h>
 #include <rak/functional_fun.h>
-#include <rpc/parse_commands.h>
 #include <sigc++/adaptors/bind.h>
 #include <torrent/download.h>
 #include <torrent/exceptions.h>
 
+#include "rpc/parse_commands.h"
+#include "rpc/object_storage.h"
 #include "control.h"
 #include "download.h"
 #include "download_list.h"
@@ -55,14 +56,28 @@ namespace core {
 
 // Also add focus thingie here?
 struct view_downloads_compare : std::binary_function<Download*, Download*, bool> {
-  view_downloads_compare(const std::string& cmd) : m_command(cmd) {}
+  view_downloads_compare(const torrent::Object& cmd) : m_command(cmd) {}
 
   bool operator () (Download* d1, Download* d2) const {
     try {
-      if (m_command.empty())
+      if (m_command.is_empty())
         return false;
 
-      return rpc::parse_command_single(rpc::make_target_pair(d1, d2), m_command).as_value();
+      if (!m_command.is_dict_key())
+        return rpc::parse_command_single(rpc::make_target_pair(d1, d2), m_command.as_string()).as_value();
+
+      // torrent::Object tmp_command = m_command;
+
+      // uint32_t flags = tmp_command.flags() & torrent::Object::mask_function;
+      // tmp_command.unset_flags(torrent::Object::mask_function);
+      // tmp_command.set_flags((flags >> 1) & torrent::Object::mask_function);
+
+      // rpc::parse_command_execute(rpc::make_target_pair(d1, d2), &tmp_command);
+      // return rpc::commands.call_command(tmp_command.as_dict_key().c_str(), tmp_command.as_dict_obj(),
+      //                                   rpc::make_target_pair(d1, d2)).as_value();
+
+      return rpc::commands.call_command(m_command.as_dict_key().c_str(), m_command.as_dict_obj(),
+                                        rpc::make_target_pair(d1, d2)).as_value();
 
     } catch (torrent::input_error& e) {
       control->core()->push_log(e.what());
@@ -71,18 +86,35 @@ struct view_downloads_compare : std::binary_function<Download*, Download*, bool>
     }
   }
 
-  const std::string& m_command;
+  const torrent::Object& m_command;
 };
 
 struct view_downloads_filter : std::unary_function<Download*, bool> {
-  view_downloads_filter(const std::string& cmd) : m_command(cmd) {}
+  view_downloads_filter(const torrent::Object& cmd) : m_command(cmd) {}
 
   bool operator () (Download* d1) const {
-    if (m_command.empty())
+    if (m_command.is_empty())
       return true;
 
     try {
-      torrent::Object result = rpc::parse_command_single(rpc::make_target(d1), m_command);
+      torrent::Object result;
+
+      if (m_command.is_dict_key()) {
+        // torrent::Object tmp_command = m_command;
+
+        // uint32_t flags = tmp_command.flags() & torrent::Object::mask_function;
+        // tmp_command.unset_flags(torrent::Object::mask_function);
+        // tmp_command.set_flags((flags >> 1) & torrent::Object::mask_function);
+
+        // rpc::parse_command_execute(rpc::make_target(d1), &tmp_command);
+        // result = rpc::commands.call_command(tmp_command.as_dict_key().c_str(), tmp_command.as_dict_obj(),
+        //                                     rpc::make_target(d1));
+
+        result = rpc::commands.call_command(m_command.as_dict_key().c_str(), m_command.as_dict_obj(), rpc::make_target(d1));
+
+      } else {
+        result = rpc::parse_command_single(rpc::make_target(d1), m_command.as_string());
+      }
 
       switch (result.type()) {
         //      case torrent::Object::TYPE_RAW_BENCODE: return !result.as_raw_bencode().empty();
@@ -104,7 +136,7 @@ struct view_downloads_filter : std::unary_function<Download*, bool> {
     }
   }
 
-  const std::string&       m_command;
+  const torrent::Object&       m_command;
 };
 
 inline void
@@ -291,19 +323,12 @@ View::filter_download(core::Download* download) {
 
 void
 View::set_filter_on_event(const std::string& event) {
-  if (std::find(m_events.begin(), m_events.end(), event) != m_events.end())
-    return;
-
-  rpc::commands.call_catch("method.set_key", rpc::make_target(), rpc::create_object_list(event, "!view." + m_name, "view.filter_download=" + m_name));
-  m_events.push_back(event);
+  control->object_storage()->set_str_multi_key(event, "!view." + m_name, "view.filter_download=" + m_name);
 }
 
 void
 View::clear_filter_on() {
-  // Don't clear insert and erase as these are required to keep the
-  // View up-to-date with the available downloads.
-  for (event_list_type::const_iterator itr = m_events.begin(); itr != m_events.end(); itr++)
-    rpc::commands.call_catch("method.set_key", rpc::make_target(), rpc::create_object_list(*itr, "!view." + m_name));
+  control->object_storage()->rlookup_clear("!view." + m_name);
 }
 
 inline void

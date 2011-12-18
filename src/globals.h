@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent library
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -43,6 +43,7 @@
 #include "thread_base.h"
 #include "thread_main.h"
 #include "thread_worker.h"
+#include "rpc/ip_table_list.h"
 
 class Control;
 
@@ -53,6 +54,7 @@ class Control;
 
 extern rak::priority_queue_default taskScheduler;
 extern rak::timer                  cachedTime;
+extern rpc::ip_table_list          ip_tables;
 
 extern Control*      control;
 // extern __thread ThreadBase* main_thread; // Only use for worker threads for now.

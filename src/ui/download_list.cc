@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -42,6 +42,7 @@
 #include <sigc++/adaptors/hide.h>
 #include <torrent/exceptions.h>
 #include <torrent/torrent.h>
+#include <torrent/utils/log.h>
 
 #include "core/download.h"
 #include "core/download_list.h"
@@ -328,7 +329,7 @@ DownloadList::receive_exit_input(Input type) {
     }
 
   } catch (torrent::input_error& e) {
-    control->core()->push_log(e.what());
+    lt_log_print(torrent::LOG_WARN, "Input failed: %s", e.what());
   }
 
   activate_display(DISPLAY_DOWNLOAD_LIST);

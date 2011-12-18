@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -41,11 +41,11 @@
 #include <sstream>
 #include <stdexcept>
 #include <rak/path.h>
+#include <torrent/utils/resume.h>
 #include <torrent/object.h>
 #include <torrent/object_stream.h>
 #include <torrent/exceptions.h>
 #include <torrent/rate.h>
-#include <torrent/resume.h>
 #include <torrent/data/file_utils.h>
 
 #include "rpc/parse_commands.h"
@@ -108,8 +108,10 @@ DownloadFactory::DownloadFactory(Manager* m) :
   m_taskLoad.set_slot(rak::mem_fn(this, &DownloadFactory::receive_load));
   m_taskCommit.set_slot(rak::mem_fn(this, &DownloadFactory::receive_commit));
 
-  m_variables["connection_leech"] = rpc::call_command_void("protocol.connection.leech");
-  m_variables["connection_seed"]  = rpc::call_command_void("protocol.connection.seed");
+  // m_variables["connection_leech"] = rpc::call_command_void("protocol.connection.leech");
+  // m_variables["connection_seed"]  = rpc::call_command_void("protocol.connection.seed");
+  m_variables["connection_leech"] = std::string();
+  m_variables["connection_seed"]  = std::string();
   m_variables["directory"]        = rpc::call_command_void("directory.default");
   m_variables["tied_to_file"]     = torrent::Object((int64_t)false);
 }
@@ -154,8 +156,8 @@ DownloadFactory::receive_load() {
     m_stream = new std::stringstream;
     HttpQueue::iterator itr = m_manager->http_queue()->insert(m_uri, m_stream);
 
-    (*itr)->signal_done().slots().push_front(sigc::mem_fun(*this, &DownloadFactory::receive_loaded));
-    (*itr)->signal_failed().slots().push_front(sigc::mem_fun(*this, &DownloadFactory::receive_failed));
+    (*itr)->signal_done().push_front(std::bind(&DownloadFactory::receive_loaded, this));
+    (*itr)->signal_failed().push_front(std::bind(&DownloadFactory::receive_failed, this, std::placeholders::_1));
 
     m_variables["tied_to_file"] = (int64_t)false;
 
@@ -251,10 +253,14 @@ DownloadFactory::receive_success() {
   if (!rtorrent->has_key_string("custom4")) rtorrent->insert_key("custom4", std::string());
   if (!rtorrent->has_key_string("custom5")) rtorrent->insert_key("custom5", std::string());
 
+  rpc::call_command("d.uploads_min.set",      rpc::call_command_void("throttle.min_uploads"), rpc::make_target(download));
   rpc::call_command("d.uploads_max.set",      rpc::call_command_void("throttle.max_uploads"), rpc::make_target(download));
+  rpc::call_command("d.downloads_min.set",    rpc::call_command_void("throttle.min_downloads"), rpc::make_target(download));
+  rpc::call_command("d.downloads_max.set",    rpc::call_command_void("throttle.max_downloads"), rpc::make_target(download));
   rpc::call_command("d.peers_min.set",        rpc::call_command_void("throttle.min_peers.normal"), rpc::make_target(download));
   rpc::call_command("d.peers_max.set",        rpc::call_command_void("throttle.max_peers.normal"), rpc::make_target(download));
   rpc::call_command("d.tracker_numwant.set",  rpc::call_command_void("trackers.numwant"), rpc::make_target(download));
+  rpc::call_command("d.max_file_size.set",    rpc::call_command_void("system.file.max_size"), rpc::make_target(download));
 
   if (rpc::call_command_value("d.complete", rpc::make_target(download)) != 0) {
     if (rpc::call_command_value("throttle.min_peers.seed") >= 0)
@@ -266,9 +272,6 @@ DownloadFactory::receive_success() {
 
   if (!rpc::call_command_value("trackers.use_udp"))
     download->enable_udp_trackers(false);
-
-  if (rpc::call_command_value("system.file.max_size") > 0)
-    rpc::call_command("d.max_file_size.set", rpc::call_command_void("system.file.max_size"), rpc::make_target(download));
 
   // Check first if we already have these values set in the session
   // torrent, so that it is safe to change the values.
@@ -366,6 +369,9 @@ DownloadFactory::initialize_rtorrent(Download* download, torrent::Object* rtorre
   rtorrent->insert_preserve_copy("complete", (int64_t)0);
   rtorrent->insert_preserve_copy("hashing",  (int64_t)Download::variable_hashing_stopped);
 
+  rtorrent->insert_preserve_copy("timestamp.started",  (int64_t)0);
+  rtorrent->insert_preserve_copy("timestamp.finished", (int64_t)0);
+
   rtorrent->insert_preserve_copy("tied_to_file", "");
   rtorrent->insert_key("loaded_file", m_isFile ? m_uri : std::string());
 
@@ -385,9 +391,8 @@ DownloadFactory::initialize_rtorrent(Download* download, torrent::Object* rtorre
   if (rtorrent->has_key_value("total_uploaded"))
     download->info()->mutable_up_rate()->set_total(rtorrent->get_key_value("total_uploaded"));
 
-  if (rtorrent->has_key_value("chunks_done"))
-    download->download()->set_chunks_done(std::min<uint32_t>(rtorrent->get_key_value("chunks_done"),
-                                                             download->download()->file_list()->size_chunks()));
+  if (rtorrent->has_key_value("chunks_done") && rtorrent->has_key_value("chunks_wanted"))
+    download->download()->set_chunks_done(rtorrent->get_key_value("chunks_done"), rtorrent->get_key_value("chunks_wanted"));
 
   download->set_throttle_name(rtorrent->has_key_string("throttle_name")
                               ? rtorrent->get_key_string("throttle_name")
@@ -397,7 +402,12 @@ DownloadFactory::initialize_rtorrent(Download* download, torrent::Object* rtorre
   rtorrent->insert_preserve_copy("views", torrent::Object::create_list());
 
   rtorrent->insert_preserve_type("connection_leech", m_variables["connection_leech"]);
-  rtorrent->insert_preserve_type("connection_seed", m_variables["connection_seed"]);
+  rtorrent->insert_preserve_type("connection_seed",  m_variables["connection_seed"]);
+
+  rtorrent->insert_preserve_copy("choke_heuristics.up.leech",   std::string());
+  rtorrent->insert_preserve_copy("choke_heuristics.up.seed",    std::string());
+  rtorrent->insert_preserve_copy("choke_heuristics.down.leech", std::string());
+  rtorrent->insert_preserve_copy("choke_heuristics.down.seed",  std::string());
 }
 
 }

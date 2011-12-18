@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -58,6 +58,7 @@ void initialize_commands();
 #define CMD2_ANY(key, slot)          CMD2_A_FUNCTION(key, command_base_call<rpc::target_type>, slot, "i:", "")
 
 #define CMD2_ANY_P(key, slot)        CMD2_A_FUNCTION_PRIVATE(key, command_base_call<rpc::target_type>, slot, "i:", "")
+#define CMD2_ANY_VOID(key, slot)     CMD2_A_FUNCTION(key, command_base_call<rpc::target_type>, object_convert_void(slot), "i:", "")
 #define CMD2_ANY_V(key, slot)        CMD2_A_FUNCTION(key, command_base_call_list<rpc::target_type>, object_convert_void(slot), "i:", "")
 #define CMD2_ANY_L(key, slot)        CMD2_A_FUNCTION(key, command_base_call_list<rpc::target_type>, slot, "A:", "")
 
@@ -97,34 +98,43 @@ void initialize_commands();
 
 #define CMD2_VAR_BOOL(key, value)                                       \
   control->object_storage()->insert_c_str(key, int64_t(value), rpc::object_storage::flag_bool_type); \
-  CMD2_ANY(key, std::tr1::bind(&rpc::object_storage::get, control->object_storage(),   \
+  CMD2_ANY(key, std::bind(&rpc::object_storage::get, control->object_storage(),   \
                                torrent::raw_string::from_c_str(key)));  \
-  CMD2_ANY_VALUE(key ".set", std::tr1::bind(&rpc::object_storage::set_bool, control->object_storage(), \
-                                            torrent::raw_string::from_c_str(key), std::tr1::placeholders::_2));
+  CMD2_ANY_VALUE(key ".set", std::bind(&rpc::object_storage::set_bool, control->object_storage(), \
+                                            torrent::raw_string::from_c_str(key), std::placeholders::_2));
 
 #define CMD2_VAR_VALUE(key, value)                                      \
   control->object_storage()->insert_c_str(key, int64_t(value), rpc::object_storage::flag_value_type); \
-  CMD2_ANY(key, std::tr1::bind(&rpc::object_storage::get, control->object_storage(),   \
+  CMD2_ANY(key, std::bind(&rpc::object_storage::get, control->object_storage(),   \
                                torrent::raw_string::from_c_str(key)));  \
-  CMD2_ANY_VALUE(key ".set", std::tr1::bind(&rpc::object_storage::set_value, control->object_storage(), \
-                                            torrent::raw_string::from_c_str(key), std::tr1::placeholders::_2));
+  CMD2_ANY_VALUE(key ".set", std::bind(&rpc::object_storage::set_value, control->object_storage(), \
+                                            torrent::raw_string::from_c_str(key), std::placeholders::_2));
 
 #define CMD2_VAR_STRING(key, value)                                     \
   control->object_storage()->insert_c_str(key, value, rpc::object_storage::flag_string_type); \
-  CMD2_ANY(key, std::tr1::bind(&rpc::object_storage::get, control->object_storage(),   \
+  CMD2_ANY(key, std::bind(&rpc::object_storage::get, control->object_storage(),   \
                                torrent::raw_string::from_c_str(key)));  \
-  CMD2_ANY_STRING(key ".set", std::tr1::bind(&rpc::object_storage::set_string, control->object_storage(), \
-                                            torrent::raw_string::from_c_str(key), std::tr1::placeholders::_2));
+  CMD2_ANY_STRING(key ".set", std::bind(&rpc::object_storage::set_string, control->object_storage(), \
+                                            torrent::raw_string::from_c_str(key), std::placeholders::_2));
 
 
 #define CMD2_VAR_C_STRING(key, value)                                   \
   control->object_storage()->insert_c_str(key, value, rpc::object_storage::flag_string_type); \
-  CMD2_ANY(key, std::tr1::bind(&rpc::object_storage::get, control->object_storage(),   \
+  CMD2_ANY(key, std::bind(&rpc::object_storage::get, control->object_storage(),   \
                                torrent::raw_string::from_c_str(key)));
 
+#define CMD2_VAR_LIST(key)                                              \
+  control->object_storage()->insert_c_str(key, torrent::Object::create_list(), rpc::object_storage::flag_list_type); \
+  CMD2_ANY(key, std::bind(&rpc::object_storage::get, control->object_storage(),   \
+                               torrent::raw_string::from_c_str(key)));  \
+  CMD2_ANY_LIST(key ".set", std::bind(&rpc::object_storage::set_list, control->object_storage(), \
+                                      torrent::raw_string::from_c_str(key), std::placeholders::_2)); \
+  CMD2_ANY_VOID(key ".push_back", std::bind(&rpc::object_storage::list_push_back, control->object_storage(), \
+                                            torrent::raw_string::from_c_str(key), std::placeholders::_2));
+
 #define CMD2_FUNC_SINGLE(key, cmds)                                  \
-  CMD2_ANY(key, std::tr1::bind(&rpc::command_function_call, torrent::raw_string::from_c_str(cmds), \
-                               std::tr1::placeholders::_1, std::tr1::placeholders::_2));
+  CMD2_ANY(key, std::bind(&rpc::command_function_call, torrent::raw_string::from_c_str(cmds), \
+                               std::placeholders::_1, std::placeholders::_2));
 
 #define CMD2_REDIRECT(from_key, to_key) \
   rpc::commands.create_redirect(from_key, to_key, rpc::CommandMap::flag_public_xmlrpc | rpc::CommandMap::flag_dont_delete);

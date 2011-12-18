@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -139,7 +139,7 @@ SCgi::event_read() {
   while ((fd = get_fd().accept(&sa)).is_valid()) {
     SCgiTask* task = std::find_if(m_task, m_task + max_tasks, std::mem_fun_ref(&SCgiTask::is_available));
 
-    if (task == task + max_tasks) {
+    if (task == m_task + max_tasks) {
       // Ergh... just closing for now.
       fd.close();
       continue;

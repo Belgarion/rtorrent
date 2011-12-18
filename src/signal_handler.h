@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -44,6 +44,9 @@ class SignalHandler {
 public:
   typedef sigc::slot0<void> Slot;
 
+  // typedef void (*handler_slot)(int, siginfo_t *info, ucontext_t *uap);
+  typedef void (*handler_slot)(int, siginfo_t*, void*);
+
 #ifdef NSIG
   static const unsigned int HIGHEST_SIGNAL = NSIG;
 #else
@@ -54,6 +57,8 @@ public:
   static void         set_default(unsigned int signum);
   static void         set_ignore(unsigned int signum);
   static void         set_handler(unsigned int signum, Slot slot);
+
+  static void         set_sigaction_handler(unsigned int signum, handler_slot slot);
 
   static const char*  as_string(unsigned int signum);
 

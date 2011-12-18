@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent library
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -49,8 +49,8 @@ ThreadMain::init_thread() {
   // The main thread always holds the lock while running.
   acquire_global_lock();
 
-  m_pollManager = core::PollManager::create_poll_manager();
-  m_pollManager->get_torrent_poll()->set_flags(torrent::Poll::flag_waive_global_lock);
+  m_poll = core::create_poll();
+  m_poll->set_flags(torrent::Poll::flag_waive_global_lock);
 
   m_state = STATE_INITIALIZED;
   m_thread = pthread_self();

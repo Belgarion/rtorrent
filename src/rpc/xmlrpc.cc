@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -431,6 +431,32 @@ object_to_xmlrpc(xmlrpc_env* env, const torrent::Object& object) {
       xmlrpc_value* item = object_to_xmlrpc(env, itr->second);
       xmlrpc_struct_set_value(env, result, itr->first.c_str(), item);
       xmlrpc_DECREF(item);
+    }
+
+    return result;
+  }
+
+  case torrent::Object::TYPE_DICT_KEY:
+  {
+    xmlrpc_value* result = xmlrpc_array_new(env);
+    
+    xmlrpc_value* key_item = object_to_xmlrpc(env, object.as_dict_key());
+    xmlrpc_array_append_item(env, result, key_item);
+    xmlrpc_DECREF(key_item);
+    
+    if (object.as_dict_obj().is_list()) {
+      for (torrent::Object::list_const_iterator
+             itr = object.as_dict_obj().as_list().begin(),
+             last = object.as_dict_obj().as_list().end();
+           itr != last; itr++) {
+        xmlrpc_value* item = object_to_xmlrpc(env, *itr);
+        xmlrpc_array_append_item(env, result, item);
+        xmlrpc_DECREF(item);
+      }
+    } else {
+      xmlrpc_value* arg_item = object_to_xmlrpc(env, object.as_dict_obj());
+      xmlrpc_array_append_item(env, result, arg_item);
+      xmlrpc_DECREF(arg_item);
     }
 
     return result;

@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -67,32 +67,34 @@ parse_string(const char* first, const char* last, std::string* dest, bool (*deli
   if (first == last)
     return first;
 
-  bool quoted = parse_is_quote(*first);
-
-  if (quoted)
+  if (parse_is_quote(*first)) {
     first++;
 
-  while (first != last) {
-    if (quoted) {
+    while (first != last) {
       if (parse_is_quote(*first))
         return ++first;
 
-    } else {
-      if (delim(*first))
-        return first;
-    }
-        
-    if (parse_is_escape(*first) && ++first == last)
-      throw torrent::input_error("Escape character at end of input.");
+      if (parse_is_escape(*first) && ++first == last)
+        throw torrent::input_error("Escape character at end of input.");
 
-    dest->push_back(*first);
-    first++;
-  }
-  
-  if (quoted)
+      dest->push_back(*first++);
+    }
+
     throw torrent::input_error("Missing closing quote.");
 
-  return first;
+  } else {
+    while (first != last) {
+      if (delim(*first))
+        return first;
+
+      if (parse_is_escape(*first) && ++first == last)
+        throw torrent::input_error("Escape character at end of input.");
+
+      dest->push_back(*first++);
+    }
+  
+    return first;
+  }
 }
 
 void
@@ -181,6 +183,43 @@ parse_object(const char* first, const char* last, torrent::Object* dest, bool (*
 
     return ++first;
 
+  } else if (*first == '(') {
+    int32_t depth = 1;
+
+    while (first + 1 != last && *(first + 1) == '(') {
+      first++;
+      depth++;
+    }
+
+    if (depth > 3)
+      throw torrent::input_error("Max 3 parantheses per object allowed.");
+
+    *dest = torrent::Object::create_dict_key();
+    dest->set_flags(torrent::Object::flag_function << (depth - 1));
+
+    first = parse_string(first + 1, last, &dest->as_dict_key(), &parse_is_delim_func);
+    first = parse_skip_wspace(first, last);
+
+    if (first == last || !parse_is_delim_func(*first))
+      throw torrent::input_error("Could not find closing ')'.");
+
+    if (*first == ',') {
+      // This will always create a list even for single argument functions...
+      dest->as_dict_obj() = torrent::Object::create_list();
+      first = parse_list(first + 1, last, &dest->as_dict_obj(), &parse_is_delim_func);
+      first = parse_skip_wspace(first, last);
+    }
+
+    while (depth != 0 && first != last && *first == ')') {
+      first++;
+      depth--;
+    }
+
+    if (depth != 0)
+      throw torrent::input_error("Parantheses mismatch.");
+
+    return first;
+
   } else {
     *dest = std::string();
 
@@ -235,7 +274,7 @@ convert_to_string(const torrent::Object& rawSrc) {
   switch (src.type()) {
   case torrent::Object::TYPE_VALUE: {
     char buffer[64];
-    snprintf(buffer, 64, "%lli", src.as_value());
+    snprintf(buffer, 64, "%lli", (long long int)src.as_value());
     return std::string(buffer);
   }
   case torrent::Object::TYPE_STRING: return src.as_string();
@@ -410,9 +449,12 @@ print_object(char* first, char* last, const torrent::Object* src, int flags) {
   }
 
   case torrent::Object::TYPE_VALUE:
-    return std::min(first + snprintf(first, std::distance(first, last), "%lli", src->as_value()), last);
+    return std::min(first + snprintf(first, std::distance(first, last), "%lli", (long long int)src->as_value()), last);
 
   case torrent::Object::TYPE_LIST:
+    if (first != last)
+      *first = '\0';
+
     for (torrent::Object::list_const_iterator itr = src->as_list().begin(), itrEnd = src->as_list().end(); itr != itrEnd; itr++) {
       first = print_object(first, last, &*itr, flags);
 
@@ -423,6 +465,9 @@ print_object(char* first, char* last, const torrent::Object* src, int flags) {
     return first;
 
   case torrent::Object::TYPE_NONE:
+    if (first != last)
+      *first = '\0';
+
     return first;
   default:
     throw torrent::input_error("Invalid type.");
@@ -446,7 +491,7 @@ print_object_std(std::string* dest, const torrent::Object* src, int flags) {
   case torrent::Object::TYPE_VALUE:
   {
     char buffer[64];
-    snprintf(buffer, 64, "%lli", src->as_value());
+    snprintf(buffer, 64, "%lli", (long long int)src->as_value());
 
     *dest += buffer;
     return;

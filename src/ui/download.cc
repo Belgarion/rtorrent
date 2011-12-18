@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -161,7 +161,7 @@ Download::create_info() {
   element->push_column("File stats:",       te_command("cat=$if=$d.is_multi_file=\\,multi\\,single,\" \",$d.size_files=,\" files\""));
 
   element->push_back("");
-  element->push_column("Chunks:",           te_command("cat=$d.completed_chunks=,\" / \",$d.size_chunks=,\" * \",$d.chunk_size="));
+  element->push_column("Chunks:",           te_command("cat=(d.completed_chunks),\" / \",(d.size_chunks),\" * \",(d.chunk_size),\" (\",(d.wanted_chunks),\")\""));
   element->push_column("Priority:",         te_command("d.priority="));
   element->push_column("Peer exchange:",    te_command("cat=$if=$d.peer_exchange=\\,enabled\\,disabled,\\ ,"
                                                        "$if=$d.is_pex_active=\\,active\\,$d.is_private=\\,private\\,inactive,"
@@ -176,7 +176,8 @@ Download::create_info() {
   element->push_column("Safe diskspace:",   te_command("cat=$convert.mb=$pieces.sync.safe_free_diskspace=,\" MB\""));
 
   element->push_back("");
-  element->push_column("Connection type:",  te_command("d.connection_current="));
+  element->push_column("Connection type:",  te_command("cat=(d.connection_current),\" \",(if,(d.accepting_seeders),"",\"no_seeders\")"));
+  element->push_column("Choke heuristic:",  te_command("cat=(d.up.choke_heuristics),\", \",(d.down.choke_heuristics),\", \",(d.group)"));
   element->push_column("Safe sync:",        te_command("if=$pieces.sync.always_safe=,yes,no"));
   element->push_column("Send buffer:",      te_command("cat=$convert.kb=$network.send_buffer.size=,\" KB\""));
   element->push_column("Receive buffer:",   te_command("cat=$convert.kb=$network.receive_buffer.size=,\" KB\""));
@@ -303,6 +304,27 @@ Download::receive_max_uploads(int t) {
 }
 
 void
+Download::receive_min_uploads(int t) {
+  m_windowDownloadStatus->mark_dirty();
+
+  m_download->download()->set_uploads_min(std::max<int32_t>(m_download->download()->uploads_min() + t, 0));
+}
+
+void
+Download::receive_max_downloads(int t) {
+  m_windowDownloadStatus->mark_dirty();
+
+  m_download->download()->set_downloads_max(std::max<int32_t>(m_download->download()->downloads_max() + t, 0));
+}
+
+void
+Download::receive_min_downloads(int t) {
+  m_windowDownloadStatus->mark_dirty();
+
+  m_download->download()->set_downloads_min(std::max<int32_t>(m_download->download()->downloads_min() + t, 0));
+}
+
+void
 Download::receive_min_peers(int t) {
   m_windowDownloadStatus->mark_dirty();
 
@@ -354,17 +376,23 @@ Download::adjust_up_throttle(int throttle) {
 
 void
 Download::bind_keys() {
-  m_bindings['1'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_uploads), -1);
-  m_bindings['2'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_uploads), 1);
-  m_bindings['3'] = sigc::bind(sigc::mem_fun(this, &Download::receive_min_peers), -5);
-  m_bindings['4'] = sigc::bind(sigc::mem_fun(this, &Download::receive_min_peers), 5);
-  m_bindings['5'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_peers), -5);
-  m_bindings['6'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_peers), 5);
+  m_bindings['1'] = sigc::bind(sigc::mem_fun(this, &Download::receive_min_uploads), -1);
+  m_bindings['2'] = sigc::bind(sigc::mem_fun(this, &Download::receive_min_uploads), 1);
+  m_bindings['3'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_uploads), -1);
+  m_bindings['4'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_uploads), 1);
+  m_bindings['!'] = sigc::bind(sigc::mem_fun(this, &Download::receive_min_downloads), -1);
+  m_bindings['@'] = sigc::bind(sigc::mem_fun(this, &Download::receive_min_downloads), 1);
+  m_bindings['#'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_downloads), -1);
+  m_bindings['$'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_downloads), 1);
+  m_bindings['5'] = sigc::bind(sigc::mem_fun(this, &Download::receive_min_peers), -5);
+  m_bindings['6'] = sigc::bind(sigc::mem_fun(this, &Download::receive_min_peers), 5);
+  m_bindings['7'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_peers), -5);
+  m_bindings['8'] = sigc::bind(sigc::mem_fun(this, &Download::receive_max_peers), 5);
   m_bindings['+'] = sigc::mem_fun(this, &Download::receive_next_priority);
   m_bindings['-'] = sigc::mem_fun(this, &Download::receive_prev_priority);
 
-  m_bindings['t'] = sigc::bind(sigc::mem_fun(m_download->tracker_list(), &torrent::TrackerList::manual_request), false);
-  m_bindings['T'] = sigc::bind(sigc::mem_fun(m_download->tracker_list(), &torrent::TrackerList::manual_request), true);
+  m_bindings['t'] = sigc::bind(sigc::mem_fun(m_download->download(), &torrent::Download::manual_request), false);
+  m_bindings['T'] = sigc::bind(sigc::mem_fun(m_download->download(), &torrent::Download::manual_request), true);
 
   const char* keys = control->ui()->get_throttle_keys();
 

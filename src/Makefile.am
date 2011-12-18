@@ -13,11 +13,14 @@ libsub_root_a_SOURCES = \
 	command_dynamic.cc \
 	command_events.cc \
 	command_file.cc \
+	command_ip.cc \
 	command_helpers.cc \
 	command_helpers.h \
+	command_groups.cc \
 	command_local.cc \
 	command_network.cc \
 	command_peer.cc \
+	command_throttle.cc \
 	command_tracker.cc \
 	command_scheduler.cc \
 	command_ui.cc \

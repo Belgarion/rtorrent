@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -44,11 +44,11 @@
 #include <rak/error_number.h>
 #include <rak/path.h>
 #include <rak/string_manip.h>
+#include <torrent/utils/resume.h>
 #include <torrent/object.h>
 #include <torrent/exceptions.h>
 #include <torrent/torrent.h>
 #include <torrent/rate.h>
-#include <torrent/resume.h>
 #include <torrent/object_stream.h>
 
 #include "utils/directory.h"
@@ -137,7 +137,8 @@ DownloadStore::save(Download* d, int flags) {
   torrent::Object* rtorrent_base = &d->download()->bencode()->get_key("rtorrent");
 
   // Move this somewhere else?
-  rtorrent_base->insert_key("chunks_done", d->download()->file_list()->completed_chunks());
+  rtorrent_base->insert_key("chunks_done",    d->download()->file_list()->completed_chunks());
+  rtorrent_base->insert_key("chunks_wanted",  d->download()->data()->wanted_chunks());
   rtorrent_base->insert_key("total_uploaded", d->info()->up_rate()->total());
 
   // Don't save for completed torrents when we've cleared the uncertain_pieces.

@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -68,6 +68,9 @@ CurlGet::start() {
     throw torrent::internal_error("Tried to call CurlGet::start without a valid output stream.");
 
   m_handle = curl_easy_init();
+
+  if (m_handle == NULL)
+    throw torrent::internal_error("Call to curl_easy_init() failed.");
 
   curl_easy_setopt(m_handle, CURLOPT_URL,            m_url.c_str());
   curl_easy_setopt(m_handle, CURLOPT_WRITEFUNCTION,  &curl_get_receive_write);

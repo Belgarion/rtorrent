@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -93,11 +93,38 @@ parse_command_execute(target_type target, torrent::Object* object) {
       parse_command_execute(target, &*itr);
     }
 
-  } else if (*object->as_string().c_str() == '$') {
+  } else if (object->is_dict_key()) {
+    parse_command_execute(target, &object->as_dict_obj());
+
+    if (object->flags() & torrent::Object::flag_function) {
+      *object = rpc::commands.call_command(object->as_dict_key().c_str(), object->as_dict_obj(), target);
+
+    } else {
+      uint32_t flags = object->flags() & torrent::Object::mask_function;
+      object->unset_flags(torrent::Object::mask_function);
+      object->set_flags((flags >> 1) & torrent::Object::mask_function);
+    }
+
+  } else if (object->is_string() && *object->as_string().c_str() == '$') {
     const std::string& str = object->as_string();
 
     *object = parse_command(target, str.c_str() + 1, str.c_str() + str.size()).first;
   }
+}
+
+// Use a static length buffer for dest.
+inline const char*
+parse_command_name(const char* first, const char* last, char* dest_first, char* dest_last) {
+  if (first == last || !std::isalpha(*first))
+    throw torrent::input_error("Invalid start of command name.");
+
+  last = first + std::min(std::distance(first, last), std::distance(dest_first, dest_last) - 1);
+
+  while (first != last && (std::isalnum(*first) || *first == '_' || *first == '.'))
+    *dest_first++ = *first++;
+
+  *dest_first = '\0';
+  return first;
 }
 
 // Set 'download' to NULL to call the generic functions, thus reusing
@@ -109,8 +136,9 @@ parse_command(target_type target, const char* first, const char* last) {
   if (first == last || *first == '#')
     return std::make_pair(torrent::Object(), first);
   
-  std::string key;
-  first = parse_command_name(first, last, &key);
+  char key[128];
+
+  first = parse_command_name(first, last, key, key + 128);
   first = std::find_if(first, last, std::not1(command_map_is_space()));
   
   if (first == last || *first != '=')
@@ -135,7 +163,7 @@ parse_command(target_type target, const char* first, const char* last) {
   // following command.
   parse_command_execute(target, &args);
 
-  return std::make_pair(commands.call_command(key.c_str(), args, target), first);
+  return std::make_pair(commands.call_command(key, args, target), first);
 }
 
 torrent::Object
@@ -211,18 +239,6 @@ parse_command_file(const std::string& path) {
   return true;
 }
 
-// Use a static length buffer for dest.
-const char*
-parse_command_name(const char* first, const char* last, std::string* dest) {
-  if (first == last || !std::isalpha(*first))
-    throw torrent::input_error("Invalid start of name.");
-
-  for ( ; first != last && (std::isalnum(*first) || *first == '_' || *first == '.'); ++first)
-    dest->push_back(*first);
-
-  return first;
-}
-
 //
 //
 //
@@ -253,6 +269,56 @@ command_function_call(const torrent::raw_string& cmd, target_type target, const 
 }
 
 const torrent::Object
+command_function_call_object(const torrent::Object& cmd, target_type target, const torrent::Object& args) {
+  rpc::command_base::stack_type stack;
+  torrent::Object* last_stack;
+
+  if (args.is_list())
+    last_stack = rpc::command_base::push_stack(args.as_list(), &stack);
+  else if (args.type() != torrent::Object::TYPE_NONE)
+    last_stack = rpc::command_base::push_stack(&args, &args + 1, &stack);
+  else
+    last_stack = rpc::command_base::push_stack(NULL, NULL, &stack);
+
+  try {
+    torrent::Object result;
+
+    if (cmd.is_string()) {
+      result = parse_command_multiple(target, cmd.as_string().c_str(), cmd.as_string().c_str() + cmd.as_string().size());
+
+    } else if (cmd.is_list()){
+      for (torrent::Object::list_const_iterator first = cmd.as_list().begin(), last = cmd.as_list().end(); first != last; first++) {
+        torrent::Object tmp_cmd = *first;
+        
+        rpc::parse_command_execute(target, &tmp_cmd);
+        result = rpc::commands.call_command(tmp_cmd.as_dict_key().c_str(), tmp_cmd.as_dict_obj());
+      }
+      
+    } else {
+      torrent::Object tmp_command = cmd;
+
+      // Unquote the root function object so 'parse_command_execute'
+      // doesn't end up calling it.
+      //
+      // TODO: Only call this if mask_function is set?
+      uint32_t flags = tmp_command.flags() & torrent::Object::mask_function;
+      tmp_command.unset_flags(torrent::Object::mask_function);
+      tmp_command.set_flags((flags >> 1) & torrent::Object::mask_function);
+
+      rpc::parse_command_execute(target, &tmp_command);
+      rpc::commands.call_command(tmp_command.as_dict_key().c_str(), tmp_command.as_dict_obj(), target);
+    }
+
+    rpc::command_base::pop_stack(&stack, last_stack);
+    return result;
+
+  } catch (torrent::bencode_error& e) {
+    rpc::command_base::pop_stack(&stack, last_stack);
+    throw e;
+  }
+}
+
+const torrent::Object
 command_function_multi_call(const torrent::Object::map_type& cmd, target_type target, const torrent::Object& args) {
   rpc::command_base::stack_type stack;
   torrent::Object* last_stack;
@@ -266,6 +332,23 @@ command_function_multi_call(const torrent::Object::map_type& cmd, target_type ta
 
   try {
     for (torrent::Object::map_const_iterator itr = cmd.begin(), last = cmd.end(); itr != last; itr++) {
+      if (itr->second.is_dict_key()) {
+        // This can/should be optimized...
+        torrent::Object tmp_command = itr->second;
+
+        // Unquote the root function object so 'parse_command_execute'
+        // doesn't end up calling it.
+        //
+        // TODO: Only call this if mask_function is set?
+        uint32_t flags = tmp_command.flags() & torrent::Object::mask_function;
+        tmp_command.unset_flags(torrent::Object::mask_function);
+        tmp_command.set_flags((flags >> 1) & torrent::Object::mask_function);
+
+        rpc::parse_command_execute(target, &tmp_command);
+        rpc::commands.call_command(tmp_command.as_dict_key().c_str(), tmp_command.as_dict_obj(), target);
+        continue;
+      }
+
       const std::string& cmd_str = itr->second.as_string();
       parse_command_multiple(target, cmd_str.c_str(), cmd_str.c_str() + cmd_str.size());
     }

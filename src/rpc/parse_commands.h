@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -61,6 +61,8 @@ typedef std::pair<torrent::Object, const char*> parse_command_type;
 // the 'download' parameter should be replaced by a more generic one.
 parse_command_type     parse_command(target_type target, const char* first, const char* last);
 torrent::Object        parse_command_multiple(target_type target, const char* first, const char* last);
+
+void                   parse_command_execute(target_type target, torrent::Object* object);
 
 // Make this take care of lists too.
 parse_command_type     parse_command_object(target_type target, const torrent::Object& object);
@@ -129,6 +131,8 @@ call_command_d_range(const char* key, core::Download* download, torrent::Object:
 // Temp until it can be moved somewhere better...
 const torrent::Object
 command_function_call(const torrent::raw_string& cmd, target_type target, const torrent::Object& args);
+const torrent::Object
+command_function_call_object(const torrent::Object& cmd, target_type target, const torrent::Object& args);
 const torrent::Object
 command_function_multi_call(const torrent::Object::map_type& cmd, target_type target, const torrent::Object& args);
 

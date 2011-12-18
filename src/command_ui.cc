@@ -1,5 +1,5 @@
 // rTorrent - BitTorrent client
-// Copyright (C) 2005-2007, Jari Sundell
+// Copyright (C) 2005-2011, Jari Sundell
 //
 // This program is free software; you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -55,7 +55,8 @@
 #include "control.h"
 #include "command_helpers.h"
 
-typedef void (core::ViewManager::*view_cfilter_slot)(const std::string&, const std::string&);
+typedef void (core::ViewManager::*view_cfilter_slot)(const std::string&, const torrent::Object&);
+typedef void (core::ViewManager::*view_event_slot)(const std::string&, const std::string&);
 
 torrent::Object
 apply_view_filter_on(const torrent::Object::list_type& args) {
@@ -84,6 +85,21 @@ apply_view_cfilter(view_cfilter_slot viewFilterSlot, const torrent::Object::list
 
   const std::string& name = args.front().as_string();
 
+  if (name.empty())
+    throw torrent::input_error("First argument must be a string.");
+
+  (control->view_manager()->*viewFilterSlot)(name, args.back());
+
+  return torrent::Object();
+}
+
+torrent::Object
+apply_view_event(view_event_slot viewFilterSlot, const torrent::Object::list_type& args) {
+  if (args.size() != 2)
+    throw torrent::input_error("Too few arguments.");
+
+  const std::string& name = args.front().as_string();
+  
   if (name.empty())
     throw torrent::input_error("First argument must be a string.");
 
@@ -158,20 +174,35 @@ apply_cat(rpc::target_type target, const torrent::Object& rawArgs) {
 
 // Move these boolean operators to a new file.
 
-bool
+inline bool
 as_boolean(const torrent::Object& rawArgs) {
   switch (rawArgs.type()) {
   case torrent::Object::TYPE_VALUE:  return rawArgs.as_value();
   case torrent::Object::TYPE_STRING: return !rawArgs.as_string().empty();
-  case torrent::Object::TYPE_LIST:   return !rawArgs.as_list().empty();
-  case torrent::Object::TYPE_MAP:    return !rawArgs.as_map().empty();
+
+  // We need to properly handle argument lists that are single-object
+  // at a higher level.
+  case torrent::Object::TYPE_LIST:   return !rawArgs.as_list().empty() && as_boolean(rawArgs.as_list().front());
+  // case torrent::Object::TYPE_MAP:    return !rawArgs.as_map().empty();
   default: return false;
   }
 }
 
 torrent::Object
 apply_not(rpc::target_type target, const torrent::Object& rawArgs) {
-  return (int64_t)!as_boolean(rawArgs);
+  bool result;
+
+  if (rawArgs.is_dict_key())
+    result = as_boolean(rpc::commands.call_command(rawArgs.as_dict_key().c_str(), rawArgs.as_dict_obj(),
+                                                   target));
+  // TODO: Thus we should clean this up...
+  else if (rawArgs.is_list() && !rawArgs.as_list().empty())
+    return apply_not(target, rawArgs.as_list().front());
+
+  else
+    result = as_boolean(rawArgs);
+
+  return (int64_t)!result;
 }
 
 torrent::Object
@@ -185,8 +216,19 @@ apply_and(rpc::target_type target, const torrent::Object& rawArgs) {
     return as_boolean(rawArgs);
 
   for (torrent::Object::list_const_iterator itr = rawArgs.as_list().begin(), last = rawArgs.as_list().end(); itr != last; itr++)
-    if (!as_boolean(rpc::parse_command_single(target, itr->as_string())))
-      return (int64_t)false;
+    if (itr->is_dict_key()) {
+      if (!as_boolean(rpc::commands.call_command(itr->as_dict_key().c_str(), itr->as_dict_obj(), target)))
+        return (int64_t)false;
+
+    } else if (itr->is_value()) {
+      if (!itr->as_value())      
+        return (int64_t)false;
+
+    } else {        
+      // TODO: Switch to new versions that only accept the new command syntax.
+      if (!as_boolean(rpc::parse_command_single(target, itr->as_string())))
+        return (int64_t)false;
+    }
 
   return (int64_t)true;
 }
@@ -197,8 +239,18 @@ apply_or(rpc::target_type target, const torrent::Object& rawArgs) {
     return as_boolean(rawArgs);
 
   for (torrent::Object::list_const_iterator itr = rawArgs.as_list().begin(), last = rawArgs.as_list().end(); itr != last; itr++)
-    if (as_boolean(rpc::parse_command_single(target, itr->as_string())))
-      return (int64_t)true;
+    if (itr->is_dict_key()) {
+      if (as_boolean(rpc::commands.call_command(itr->as_dict_key().c_str(), itr->as_dict_obj(), target)))
+        return (int64_t)true;
+
+    } else if (itr->is_value()) {
+      if (itr->as_value())      
+        return (int64_t)true;
+
+    } else {        
+      if (as_boolean(rpc::parse_command_single(target, itr->as_string())))
+        return (int64_t)true;
+    }
 
   return (int64_t)false;
 }
@@ -217,13 +269,18 @@ apply_cmp(rpc::target_type target, const torrent::Object::list_type& args) {
   torrent::Object result1;
   torrent::Object result2;
 
-  if (rpc::is_target_pair(target)) {
-    result1 = rpc::parse_command_single(rpc::get_target_left(target), args.front().as_string());
-    result2 = rpc::parse_command_single(rpc::get_target_right(target), args.back().as_string());
-  } else {
-    result1 = rpc::parse_command_single(target, args.front().as_string());
-    result2 = rpc::parse_command_single(target, args.back().as_string());
-  }    
+  rpc::target_type target1 = rpc::is_target_pair(target) ? rpc::get_target_left(target) : target;
+  rpc::target_type target2 = rpc::is_target_pair(target) ? rpc::get_target_right(target) : target;
+
+  if (args.front().is_dict_key())
+    result1 = rpc::commands.call_command(args.front().as_dict_key().c_str(), args.front().as_dict_obj(), target1);
+  else
+    result1 = rpc::parse_command_single(target1, args.front().as_string());
+
+  if (args.back().is_dict_key())
+    result2 = rpc::commands.call_command(args.back().as_dict_key().c_str(), args.back().as_dict_obj(), target2);
+  else
+    result2 = rpc::parse_command_single(target2, args.back().as_string());
 
   if (result1.type() != result2.type())
     throw torrent::input_error("Type mismatch.");
@@ -349,6 +406,8 @@ apply_if(rpc::target_type target, const torrent::Object& rawArgs, int flags) {
 
     if (flags & 0x1 && itr->is_string())
       conditional = &(tmp = rpc::parse_command(target, itr->as_string().c_str(), itr->as_string().c_str() + itr->as_string().size()).first);
+    else if (flags & 0x1 && itr->is_dict_key())
+      conditional = &(tmp = rpc::commands.call_command(itr->as_dict_key().c_str(), itr->as_dict_obj(), target));
     else
       conditional = &*itr;
 
@@ -382,6 +441,9 @@ apply_if(rpc::target_type target, const torrent::Object& rawArgs, int flags) {
   if (flags & 0x1 && itr->is_string()) {
     return rpc::parse_command(target, itr->as_string().c_str(), itr->as_string().c_str() + itr->as_string().size()).first;
 
+  } else if (flags & 0x1 && itr->is_dict_key()) {
+    return rpc::commands.call_command(itr->as_dict_key().c_str(), itr->as_dict_obj(), target);
+
   } else if (flags & 0x1 && itr->is_list()) {
     // Move this into a special function or something. Also, might be
     // nice to have a parse_command function that takes list
@@ -412,7 +474,7 @@ torrent::Object
 cmd_view_persistent(const torrent::Object::string_type& args) {
   core::View* view = *control->view_manager()->find_throw(args);
   
-  if (!view->get_filter().empty() || !view->get_event_added().empty() || !view->get_event_removed().empty())
+  if (!view->get_filter().is_empty() || !view->get_event_added().empty() || !view->get_event_removed().empty())
     throw torrent::input_error("Cannot set modified views as persitent.");
 
   view->set_filter("d.views.has=" + args);
@@ -457,43 +519,65 @@ cmd_view_set_not_visible(core::Download* download, const torrent::Object::string
   return torrent::Object();
 }
 
+torrent::Object
+apply_elapsed_less(const torrent::Object::list_type& args) {
+  if (args.size() != 2)
+    throw torrent::input_error("Wrong argument count.");
+
+  int64_t start_time = rpc::convert_to_value(args.front());
+
+  return (int64_t)(start_time != 0 && rak::timer::current_seconds() - start_time < rpc::convert_to_value(args.back()));
+}
+
+torrent::Object
+apply_elapsed_greater(const torrent::Object::list_type& args) {
+  if (args.size() != 2)
+    throw torrent::input_error("Wrong argument count.");
+
+  int64_t start_time = rpc::convert_to_value(args.front());
+
+  return (int64_t)(start_time != 0 && rak::timer::current_seconds() - start_time > rpc::convert_to_value(args.back()));
+}
+
 void
 initialize_command_ui() {
   CMD2_VAR_STRING("keys.layout", "qwerty");
 
-  CMD2_ANY_STRING("view.add", object_convert_void(std::tr1::bind(&core::ViewManager::insert_throw, control->view_manager(), std::tr1::placeholders::_2)));
+  CMD2_ANY_STRING("view.add", object_convert_void(std::bind(&core::ViewManager::insert_throw, control->view_manager(), std::placeholders::_2)));
 
-  CMD2_ANY_L   ("view.list",          std::tr1::bind(&apply_view_list));
-  CMD2_ANY_LIST("view.set",           std::tr1::bind(&apply_view_set, std::tr1::placeholders::_2));
+  CMD2_ANY_L   ("view.list",          std::bind(&apply_view_list));
+  CMD2_ANY_LIST("view.set",           std::bind(&apply_view_set, std::placeholders::_2));
 
-  CMD2_ANY_LIST("view.filter",        std::tr1::bind(&apply_view_cfilter, &core::ViewManager::set_filter, std::tr1::placeholders::_2));
-  CMD2_ANY_LIST("view.filter_on",     std::tr1::bind(&apply_view_filter_on, std::tr1::placeholders::_2));
+  CMD2_ANY_LIST("view.filter",        std::bind(&apply_view_cfilter, &core::ViewManager::set_filter, std::placeholders::_2));
+  CMD2_ANY_LIST("view.filter_on",     std::bind(&apply_view_filter_on, std::placeholders::_2));
 
-  CMD2_ANY_LIST("view.sort",          std::tr1::bind(&apply_view_sort, std::tr1::placeholders::_2));
-  CMD2_ANY_LIST("view.sort_new",      std::tr1::bind(&apply_view_cfilter, &core::ViewManager::set_sort_new, std::tr1::placeholders::_2));
-  CMD2_ANY_LIST("view.sort_current",  std::tr1::bind(&apply_view_cfilter, &core::ViewManager::set_sort_current, std::tr1::placeholders::_2));
+  CMD2_ANY_LIST("view.sort",          std::bind(&apply_view_sort, std::placeholders::_2));
+  CMD2_ANY_LIST("view.sort_new",      std::bind(&apply_view_cfilter, &core::ViewManager::set_sort_new, std::placeholders::_2));
+  CMD2_ANY_LIST("view.sort_current",  std::bind(&apply_view_cfilter, &core::ViewManager::set_sort_current, std::placeholders::_2));
 
-  CMD2_ANY_LIST("view.event_added",   std::tr1::bind(&apply_view_cfilter, &core::ViewManager::set_event_added, std::tr1::placeholders::_2));
-  CMD2_ANY_LIST("view.event_removed", std::tr1::bind(&apply_view_cfilter, &core::ViewManager::set_event_removed, std::tr1::placeholders::_2));
+  CMD2_ANY_LIST("view.event_added",   std::bind(&apply_view_event, &core::ViewManager::set_event_added, std::placeholders::_2));
+  CMD2_ANY_LIST("view.event_removed", std::bind(&apply_view_event, &core::ViewManager::set_event_removed, std::placeholders::_2));
 
   // Cleanup and add . to view.
 
-  CMD2_ANY_STRING("view.size",              std::tr1::bind(&cmd_view_size, std::tr1::placeholders::_2));
-  CMD2_ANY_STRING("view.size_not_visible",  std::tr1::bind(&cmd_view_size_not_visible, std::tr1::placeholders::_2));
-  CMD2_ANY_STRING("view.persistent",        std::tr1::bind(&cmd_view_persistent, std::tr1::placeholders::_2));
+  CMD2_ANY_STRING("view.size",              std::bind(&cmd_view_size, std::placeholders::_2));
+  CMD2_ANY_STRING("view.size_not_visible",  std::bind(&cmd_view_size_not_visible, std::placeholders::_2));
+  CMD2_ANY_STRING("view.persistent",        std::bind(&cmd_view_persistent, std::placeholders::_2));
 
-  CMD2_DL_STRING ("view.filter_download", std::tr1::bind(&cmd_view_filter_download, std::tr1::placeholders::_1, std::tr1::placeholders::_2));
-  CMD2_DL_STRING ("view.set_visible",     std::tr1::bind(&cmd_view_set_visible,     std::tr1::placeholders::_1, std::tr1::placeholders::_2));
-  CMD2_DL_STRING ("view.set_not_visible", std::tr1::bind(&cmd_view_set_not_visible, std::tr1::placeholders::_1, std::tr1::placeholders::_2));
+  CMD2_ANY_STRING_V("view.filter_all",      std::bind(&core::View::filter, std::bind(&core::ViewManager::find_ptr_throw, control->view_manager(), std::placeholders::_2)));
+
+  CMD2_DL_STRING ("view.filter_download", std::bind(&cmd_view_filter_download, std::placeholders::_1, std::placeholders::_2));
+  CMD2_DL_STRING ("view.set_visible",     std::bind(&cmd_view_set_visible,     std::placeholders::_1, std::placeholders::_2));
+  CMD2_DL_STRING ("view.set_not_visible", std::bind(&cmd_view_set_not_visible, std::placeholders::_1, std::placeholders::_2));
 
   // Commands that affect the default rtorrent UI.
-  CMD2_DL        ("ui.unfocus_download",   std::tr1::bind(&cmd_ui_unfocus_download, std::tr1::placeholders::_1));
-  CMD2_ANY_STRING("ui.current_view.set",   std::tr1::bind(&cmd_ui_set_view, std::tr1::placeholders::_2));
+  CMD2_DL        ("ui.unfocus_download",   std::bind(&cmd_ui_unfocus_download, std::placeholders::_1));
+  CMD2_ANY_STRING("ui.current_view.set",   std::bind(&cmd_ui_set_view, std::placeholders::_2));
 
   // Move.
   CMD2_ANY("print", &apply_print);
   CMD2_ANY("cat",   &apply_cat);
-  CMD2_ANY("if",    std::tr1::bind(&apply_if, std::tr1::placeholders::_1, std::tr1::placeholders::_2, 0));
+  CMD2_ANY("if",    std::bind(&apply_if, std::placeholders::_1, std::placeholders::_2, 0));
   CMD2_ANY("not",   &apply_not);
   CMD2_ANY("false", &apply_false);
   CMD2_ANY("and",   &apply_and);
@@ -501,19 +585,22 @@ initialize_command_ui() {
 
   // A temporary command for handling stuff until we get proper
   // support for seperation of commands and literals.
-  CMD2_ANY("branch", std::tr1::bind(&apply_if, std::tr1::placeholders::_1, std::tr1::placeholders::_2, 1));
+  CMD2_ANY("branch", std::bind(&apply_if, std::placeholders::_1, std::placeholders::_2, 1));
 
   CMD2_ANY_LIST("less",    &apply_less);
   CMD2_ANY_LIST("greater", &apply_greater);
   CMD2_ANY_LIST("equal",   &apply_equal);
 
-  CMD2_ANY_VALUE("convert.gm_time",      std::tr1::bind(&apply_to_time, std::tr1::placeholders::_2, 0));
-  CMD2_ANY_VALUE("convert.gm_date",      std::tr1::bind(&apply_to_time, std::tr1::placeholders::_2, 0x2));
-  CMD2_ANY_VALUE("convert.time",         std::tr1::bind(&apply_to_time, std::tr1::placeholders::_2, 0x1));
-  CMD2_ANY_VALUE("convert.date",         std::tr1::bind(&apply_to_time, std::tr1::placeholders::_2, 0x1 | 0x2));
-  CMD2_ANY_VALUE("convert.elapsed_time", std::tr1::bind(&apply_to_elapsed_time, std::tr1::placeholders::_2));
-  CMD2_ANY_VALUE("convert.kb",           std::tr1::bind(&apply_to_kb, std::tr1::placeholders::_2));
-  CMD2_ANY_VALUE("convert.mb",           std::tr1::bind(&apply_to_mb, std::tr1::placeholders::_2));
-  CMD2_ANY_VALUE("convert.xb",           std::tr1::bind(&apply_to_xb, std::tr1::placeholders::_2));
-  CMD2_ANY_VALUE("convert.throttle",     std::tr1::bind(&apply_to_throttle, std::tr1::placeholders::_2));
+  CMD2_ANY_VALUE("convert.gm_time",      std::bind(&apply_to_time, std::placeholders::_2, 0));
+  CMD2_ANY_VALUE("convert.gm_date",      std::bind(&apply_to_time, std::placeholders::_2, 0x2));
+  CMD2_ANY_VALUE("convert.time",         std::bind(&apply_to_time, std::placeholders::_2, 0x1));
+  CMD2_ANY_VALUE("convert.date",         std::bind(&apply_to_time, std::placeholders::_2, 0x1 | 0x2));
+  CMD2_ANY_VALUE("convert.elapsed_time", std::bind(&apply_to_elapsed_time, std::placeholders::_2));
+  CMD2_ANY_VALUE("convert.kb",           std::bind(&apply_to_kb, std::placeholders::_2));
+  CMD2_ANY_VALUE("convert.mb",           std::bind(&apply_to_mb, std::placeholders::_2));
+  CMD2_ANY_VALUE("convert.xb",           std::bind(&apply_to_xb, std::placeholders::_2));
+  CMD2_ANY_VALUE("convert.throttle",     std::bind(&apply_to_throttle, std::placeholders::_2));
+
+  CMD2_ANY_LIST ("elapsed.less",         std::bind(&apply_elapsed_less, std::placeholders::_2));
+  CMD2_ANY_LIST ("elapsed.greater",      std::bind(&apply_elapsed_greater, std::placeholders::_2));
 }
